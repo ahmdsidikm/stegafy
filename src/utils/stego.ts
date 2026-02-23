@@ -4,6 +4,7 @@ export interface HiddenFile {
   size: number;
   type: string;
   data: ArrayBuffer;
+  comment?: string;
 }
 
 const MAGIC_BYTES = [0x53, 0x54, 0x45, 0x47]; // "STEG"
@@ -90,19 +91,28 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 export async function embedFiles(
   coverFile: File,
   secretFiles: File[],
-  password?: string
+  password?: string,
+  comments?: Record<number, string>
 ): Promise<{ blob: Blob; extension: string }> {
   const coverBuffer = await readFileAsArrayBuffer(coverFile);
 
-  const filesData: Array<{ name: string; type: string; size: number; dataBase64: string }> = [];
+  const filesData: Array<{
+    name: string;
+    type: string;
+    size: number;
+    dataBase64: string;
+    comment?: string;
+  }> = [];
 
-  for (const file of secretFiles) {
+  for (let i = 0; i < secretFiles.length; i++) {
+    const file = secretFiles[i];
     const buffer = await readFileAsArrayBuffer(file);
     filesData.push({
       name: file.name,
       type: file.type,
       size: file.size,
       dataBase64: arrayBufferToBase64(buffer),
+      comment: comments?.[i] || undefined,
     });
   }
 
@@ -247,6 +257,7 @@ export function extractFiles(buffer: ArrayBuffer, password?: string): HiddenFile
     size: f.size,
     type: f.type,
     data: base64ToArrayBuffer(f.dataBase64),
+    comment: f.comment || '',
   }));
 }
 
@@ -272,6 +283,7 @@ export async function reEmbedFiles(
     type: f.type,
     size: f.size,
     dataBase64: arrayBufferToBase64(f.data),
+    comment: f.comment || undefined,
   }));
 
   const payloadObj = {
