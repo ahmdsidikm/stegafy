@@ -515,8 +515,8 @@ export function App() {
               <Shield className="w-4.5 h-4.5 text-white" />
             </div>
             <div>
-              <h1 className="text-base font-bold text-slate-800 leading-tight">Steganografi</h1>
-              <p className="text-[11px] text-slate-400 leading-tight hidden sm:block">Multi-Media File Hiding</p>
+              <h1 className="text-base font-bold text-slate-800 leading-tight">Stegafy</h1>
+              <p className="text-[11px] text-slate-400 leading-tight hidden sm:block">Sembunyikan File</p>
             </div>
           </div>
 
