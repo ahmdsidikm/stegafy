@@ -1,0 +1,185 @@
+================================================================================
+            SARAN PENGEMBANGAN APLIKASI STEGANOGRAFI MULTI-MEDIA
+                   Agar Lebih Canggih dan Profesional
+================================================================================
+
+1. ENKRIPSI LEBIH KUAT (AES-256)
+   ────────────────────────────────
+   Saat ini menggunakan XOR sederhana untuk enkripsi password.
+   Saran: Gunakan Web Crypto API bawaan browser untuk menerapkan AES-256-GCM.
+   Ini adalah standar enkripsi tingkat militer yang jauh lebih aman.
+   
+   Contoh implementasi:
+   - Gunakan PBKDF2 untuk derive key dari password
+   - Gunakan AES-GCM dengan IV random untuk enkripsi payload
+   - Simpan IV bersama dengan data terenkripsi
+
+2. STEGANOGRAFI SESUNGGUHNYA (LSB - Least Significant Bit)
+   ────────────────────────────────────────────────────────
+   Saat ini file rahasia hanya ditambahkan (append) di akhir file cover.
+   Tools forensik bisa mendeteksi ini dengan mudah.
+   
+   Saran: Implementasi LSB Steganography untuk gambar:
+   - Sisipkan bit-bit file rahasia ke bit paling rendah (LSB) dari
+     setiap pixel gambar menggunakan Canvas API
+   - Hasilnya secara visual identik tetapi tidak terdeteksi oleh
+     tools biasa
+   - Untuk audio: sisipkan di LSB sample audio (WAV)
+
+3. DRAG & DROP FILE
+   ────────────────────
+   Tambahkan kemampuan drag & drop file langsung ke area upload.
+   Ini membuat pengalaman pengguna jauh lebih nyaman terutama
+   di desktop.
+   
+   Implementasi:
+   - Tambahkan event listener onDragOver, onDragLeave, onDrop
+   - Tampilkan visual feedback saat file di-hover di atas area
+   - Support multiple file drag & drop untuk file rahasia
+
+4. KOMPRESI FILE SEBELUM PENYISIPAN
+   ────────────────────────────────────
+   Saran: Kompres file rahasia menggunakan library seperti pako (zlib)
+   atau fflate sebelum disembunyikan.
+   
+   Manfaat:
+   - File stego menjadi lebih kecil
+   - Bisa menyembunyikan lebih banyak data
+   - Menambah lapisan obfuskasi
+
+5. WATERMARK & INTEGRITAS FILE
+   ──────────────────────────────
+   Tambahkan hash (SHA-256) untuk verifikasi integritas:
+   - Saat embed, hitung hash setiap file rahasia dan simpan
+   - Saat decrypt, verifikasi hash untuk memastikan file tidak rusak
+   - Tampilkan status "Verified ✓" atau "Corrupted ✗" di UI
+
+6. PROGRESS BAR UNTUK FILE BESAR
+   ────────────────────────────────
+   Untuk file berukuran besar, tambahkan progress bar yang menunjukkan:
+   - Persentase proses embedding
+   - Persentase proses dekripsi
+   - Estimasi waktu tersisa
+   - Gunakan Web Workers agar UI tidak freeze
+
+7. MODE BATCH PROCESSING
+   ───────────────────────
+   Tambahkan fitur untuk memproses banyak file cover sekaligus:
+   - Upload beberapa file cover
+   - Distribusikan file rahasia ke beberapa cover secara otomatis
+   - Cocok untuk menyembunyikan file besar yang dipecah
+
+8. PENYIMPANAN LOKAL (IndexedDB)
+   ──────────────────────────────
+   Simpan riwayat operasi di IndexedDB browser:
+   - Daftar file yang pernah diproses (metadata saja)
+   - Pengaturan pengguna (tema, preferensi)
+   - Cache file cover yang sering digunakan
+
+9. DARK/LIGHT MODE TOGGLE
+   ─────────────────────────
+   Tambahkan tombol untuk beralih antara tema gelap dan terang:
+   - Simpan preferensi di localStorage
+   - Ikuti preferensi sistem (prefers-color-scheme)
+   - Transisi halus antar tema
+
+10. MULTI-BAHASA (i18n)
+    ─────────────────────
+    Tambahkan dukungan multi-bahasa:
+    - Indonesia (default)
+    - English
+    - Gunakan library seperti react-i18next
+    - Deteksi bahasa browser otomatis
+
+11. EKSPOR/IMPOR KONFIGURASI
+    ──────────────────────────
+    Fitur untuk mengekspor dan mengimpor pengaturan:
+    - Simpan konfigurasi enkripsi sebagai file JSON
+    - Bagikan konfigurasi ke pengguna lain
+    - Berguna untuk tim yang menggunakan tool ini bersama
+
+12. ANALISIS KAPASITAS
+    ────────────────────
+    Sebelum menyembunyikan file, analisis dan tampilkan:
+    - Kapasitas maksimum file cover
+    - Ukuran total file rahasia
+    - Persentase kapasitas yang digunakan
+    - Peringatan jika file terlalu besar
+
+13. PREVIEW PERBANDINGAN (BEFORE/AFTER)
+    ─────────────────────────────────────
+    Untuk file gambar, tampilkan perbandingan side-by-side:
+    - Gambar cover asli vs gambar stego
+    - Slider untuk membandingkan
+    - Informasi perbedaan (jika menggunakan LSB)
+    - Histogram warna sebelum dan sesudah
+
+14. QR CODE SHARING
+    ─────────────────
+    Generate QR code yang berisi:
+    - Link download file stego (jika di-host)
+    - Password hint (opsional)
+    - Instruksi dekripsi singkat
+
+15. KEYBOARD SHORTCUTS
+    ────────────────────
+    Tambahkan shortcut keyboard untuk power user:
+    - Ctrl+E : Embed/Sembunyikan
+    - Ctrl+D : Dekripsi
+    - Ctrl+S : Download hasil
+    - Ctrl+O : Buka file
+    - Tab    : Navigasi antar section
+
+16. PWA (Progressive Web App)
+    ──────────────────────────
+    Jadikan aplikasi sebagai PWA:
+    - Bisa di-install di HP dan desktop
+    - Bisa digunakan offline
+    - Tambahkan service worker untuk caching
+    - Tambahkan manifest.json
+    - Icon dan splash screen
+
+17. MULTIPLE LAYER STEGANOGRAPHY
+    ─────────────────────────────
+    Sisipkan file di dalam file yang sudah disisipkan (nested):
+    - Layer 1: File cover + File rahasia A
+    - Layer 2: Hasil Layer 1 + File rahasia B
+    - Masing-masing layer bisa punya password berbeda
+    - Tingkat keamanan berlapis
+
+18. SELF-DESTRUCT MODE
+    ────────────────────
+    Fitur keamanan tambahan:
+    - Set batas maksimum percobaan dekripsi
+    - Jika password salah N kali, data tersembunyi dihapus
+    - Set expiry date untuk file stego
+    - File otomatis tidak bisa didekripsi setelah tanggal tertentu
+
+19. STEGANOGRAFI UNTUK DOKUMEN PDF
+    ────────────────────────────────
+    Dukung penyisipan data ke dalam file PDF:
+    - Sisipkan di metadata PDF
+    - Sisipkan di whitespace karakter
+    - Sisipkan di objek tersembunyi PDF
+
+20. API/CLI VERSION
+    ─────────────────
+    Buat versi command-line dan API:
+    - Node.js CLI tool untuk automation
+    - REST API endpoint untuk integrasi
+    - Batch processing via script
+    - Cocok untuk workflow DevOps/keamanan
+
+================================================================================
+   Prioritas Implementasi (dari yang paling berdampak):
+   1. AES-256 Encryption (keamanan)
+   2. LSB Steganography (steganografi asli)
+   3. Drag & Drop (UX)
+   4. Kompresi (efisiensi)
+   5. Progress Bar (UX untuk file besar)
+   6. PWA (aksesibilitas)
+   7. Hash Verification (integritas)
+   8. Analisis Kapasitas (informasi)
+   9. Dark/Light Mode (preferensi)
+   10. Sisanya sesuai kebutuhan
+================================================================================
