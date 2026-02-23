@@ -6,7 +6,7 @@ import {
   Trash2, RefreshCw, ChevronDown, ChevronUp,
   AlertCircle, CheckCircle, Loader2, Package,
   Shield, Info, DownloadCloud, AlertTriangle,
-  EyeOff, LockKeyhole,
+  EyeOff, LockKeyhole, MessageSquare, MessageSquarePlus,
 } from 'lucide-react';
 import {
   embedFiles, extractFiles, checkForHiddenData, reEmbedFiles,
@@ -74,8 +74,9 @@ export function App() {
   const [embedding, setEmbedding] = useState(false);
   const [stegoResult, setStegoResult] = useState<{ url: string; extension: string } | null>(null);
   const [stegoPreview, setStegoPreview] = useState<FilePreview | null>(null);
-  // Previews that are opened — once opened, stays open (Set of indices)
   const [openedEmbedPreviews, setOpenedEmbedPreviews] = useState<Set<number>>(new Set());
+  const [embedComments, setEmbedComments] = useState<Record<number, string>>({});
+  const [openedEmbedComments, setOpenedEmbedComments] = useState<Set<number>>(new Set());
 
   // Decrypt state
   const [stegoFile, setStegoFile] = useState<File | null>(null);
@@ -88,11 +89,11 @@ export function App() {
   const [stegoBuffer, setStegoBuffer] = useState<ArrayBuffer | null>(null);
   const [modified, setModified] = useState(false);
   const [updating, setUpdating] = useState(false);
-  // Previews that are opened — once opened, stays open (Set of file IDs)
   const [openedDecryptPreviews, setOpenedDecryptPreviews] = useState<Set<string>>(new Set());
   const [filePreviews, setFilePreviews] = useState<Record<string, string>>({});
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [stegoDetected, setStegoDetected] = useState(false);
+  const [editingComments, setEditingComments] = useState<Set<string>>(new Set());
 
   const coverInputRef = useRef<HTMLInputElement>(null);
   const secretInputRef = useRef<HTMLInputElement>(null);
@@ -105,7 +106,6 @@ export function App() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
   }, []);
 
-  // --- Build file preview ---
   async function buildFilePreview(file: File): Promise<FilePreview> {
     const preview: FilePreview = { name: file.name, size: file.size, type: file.type };
     const cat = getFileCategory(file.type, file.name);
@@ -119,7 +119,6 @@ export function App() {
     return preview;
   }
 
-  // --- Cover file ---
   const handleCoverSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -130,7 +129,6 @@ export function App() {
     setCoverPreview(preview);
   };
 
-  // --- Secret files ---
   const handleSecretFilesSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -147,52 +145,83 @@ export function App() {
     setSecretPreviews((prev) => prev.filter((_, i) => i !== index));
     setStegoResult(null);
     setStegoPreview(null);
-    // Rebuild opened previews set (shift indices)
     setOpenedEmbedPreviews((prev) => {
       const next = new Set<number>();
       prev.forEach((i) => {
         if (i < index) next.add(i);
         else if (i > index) next.add(i - 1);
-        // skip the removed index
+      });
+      return next;
+    });
+    setEmbedComments((prev) => {
+      const next: Record<number, string> = {};
+      Object.entries(prev).forEach(([key, val]) => {
+        const k = Number(key);
+        if (k < index) next[k] = val;
+        else if (k > index) next[k - 1] = val;
+      });
+      return next;
+    });
+    setOpenedEmbedComments((prev) => {
+      const next = new Set<number>();
+      prev.forEach((i) => {
+        if (i < index) next.add(i);
+        else if (i > index) next.add(i - 1);
       });
       return next;
     });
   };
 
-  // Open embed preview (stays open once opened)
   const openEmbedPreview = (index: number) => {
     setOpenedEmbedPreviews((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) {
-        next.delete(index);
-      } else {
-        next.add(index);
-      }
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   };
 
-  // Open decrypt preview (stays open once opened)
+  const toggleEmbedComment = (index: number) => {
+    setOpenedEmbedComments((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
   const openDecryptPreview = (fileId: string) => {
     setOpenedDecryptPreviews((prev) => {
       const next = new Set(prev);
-      if (next.has(fileId)) {
-        next.delete(fileId);
-      } else {
-        next.add(fileId);
-      }
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
       return next;
     });
   };
 
-  // --- Embed ---
+  const toggleEditComment = (fileId: string) => {
+    setEditingComments((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
+      return next;
+    });
+  };
+
+  const updateDecryptedFileComment = (fileId: string, comment: string) => {
+    setDecryptedFiles((prev) =>
+      prev.map((f) => (f.id === fileId ? { ...f, comment } : f))
+    );
+    setModified(true);
+  };
+
   const handleEmbed = async () => {
     if (!coverFile) return showToast('Pilih file cover terlebih dahulu!', 'error');
     if (secretFiles.length === 0) return showToast('Tambahkan minimal satu file rahasia!', 'error');
 
     setEmbedding(true);
     try {
-      const { blob, extension } = await embedFiles(coverFile, secretFiles, embedPassword || undefined);
+      const { blob, extension } = await embedFiles(coverFile, secretFiles, embedPassword || undefined, embedComments);
       const url = URL.createObjectURL(blob);
       setStegoResult({ url, extension });
 
@@ -211,7 +240,6 @@ export function App() {
     }
   };
 
-  // --- Stego file for decrypt ---
   const handleStegoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -223,6 +251,7 @@ export function App() {
     setShowDecryptPassword(false);
     setFilePreviews({});
     setOpenedDecryptPreviews(new Set());
+    setEditingComments(new Set());
     setStegoDetected(false);
 
     const preview = await buildFilePreview(file);
@@ -245,7 +274,6 @@ export function App() {
     }
   };
 
-  // --- Decrypt ---
   const handleDecrypt = async () => {
     if (!stegoBuffer) return showToast('Pilih file stego terlebih dahulu!', 'error');
     setDecrypting(true);
@@ -254,6 +282,7 @@ export function App() {
       setDecryptedFiles(files);
       setModified(false);
       setOpenedDecryptPreviews(new Set());
+      setEditingComments(new Set());
       showToast(`Berhasil mendekripsi ${files.length} file!`, 'success');
 
       const previews: Record<string, string> = {};
@@ -272,7 +301,6 @@ export function App() {
     }
   };
 
-  // --- Delete with confirmation ---
   const requestRemoveDecryptedFile = (id: string, name: string) => {
     setConfirmDialog({ open: true, fileId: id, fileName: name });
   };
@@ -280,6 +308,11 @@ export function App() {
   const confirmRemoveDecryptedFile = () => {
     setDecryptedFiles((prev) => prev.filter((f) => f.id !== confirmDialog.fileId));
     setOpenedDecryptPreviews((prev) => {
+      const next = new Set(prev);
+      next.delete(confirmDialog.fileId);
+      return next;
+    });
+    setEditingComments((prev) => {
       const next = new Set(prev);
       next.delete(confirmDialog.fileId);
       return next;
@@ -302,7 +335,7 @@ export function App() {
       for (const file of files) {
         const buffer = await readFileAsArrayBuffer(file);
         const id = Math.random().toString(36).substring(2, 15);
-        newFiles.push({ id, name: file.name, size: file.size, type: file.type, data: buffer });
+        newFiles.push({ id, name: file.name, size: file.size, type: file.type, data: buffer, comment: '' });
         const cat = getFileCategory(file.type, file.name);
         if (cat === 'image') newPreviews[id] = await readFileAsDataURL(file);
         else if (cat === 'text') newPreviews[id] = await readFileAsText(file);
@@ -373,7 +406,6 @@ export function App() {
     }
   };
 
-  // --- Preview renderers ---
   const renderPreview = (preview: FilePreview) => {
     const cat = getFileCategory(preview.type, preview.name);
     if (cat === 'image' && preview.url) {
@@ -447,6 +479,7 @@ export function App() {
     setShowDecryptPassword(false);
     setFilePreviews({});
     setOpenedDecryptPreviews(new Set());
+    setEditingComments(new Set());
     setStegoDetected(false);
     if (stegoInputRef.current) stegoInputRef.current.value = '';
   };
@@ -599,7 +632,6 @@ export function App() {
                           <X className="w-4 h-4" />
                         </button>
                       </div>
-                      {/* Cover preview — always visible */}
                       {coverPreview && renderPreview(coverPreview)}
                     </div>
                   )}
@@ -644,6 +676,8 @@ export function App() {
                       {secretFiles.map((file, index) => {
                         const hasPreviewable = getFileCategory(file.type, file.name) !== 'other' && secretPreviews[index];
                         const isOpen = openedEmbedPreviews.has(index);
+                        const isCommentOpen = openedEmbedComments.has(index);
+                        const comment = embedComments[index] || '';
                         return (
                           <div key={index} className="rounded-xl overflow-hidden border border-slate-100 file-item">
                             <div className="flex items-center gap-3 p-3">
@@ -652,9 +686,28 @@ export function App() {
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
-                                <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
+                                  {comment && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md">
+                                      <MessageSquare className="w-2.5 h-2.5" />
+                                      Komentar
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => toggleEmbedComment(index)}
+                                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                    isCommentOpen
+                                      ? 'bg-amber-50 text-amber-500'
+                                      : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
+                                  }`}
+                                  title={isCommentOpen ? 'Tutup komentar' : 'Tambah komentar'}
+                                >
+                                  <MessageSquarePlus className="w-4 h-4" />
+                                </button>
                                 {hasPreviewable && (
                                   <button
                                     onClick={() => openEmbedPreview(index)}
@@ -669,6 +722,24 @@ export function App() {
                                 </button>
                               </div>
                             </div>
+                            {isCommentOpen && (
+                              <div className="px-3 pb-3 animate-slideDown">
+                                <div className="relative">
+                                  <MessageSquare className="absolute left-3 top-3 w-3.5 h-3.5 text-slate-400" />
+                                  <textarea
+                                    value={comment}
+                                    onChange={(e) => {
+                                      setEmbedComments((prev) => ({ ...prev, [index]: e.target.value }));
+                                      setStegoResult(null);
+                                      setStegoPreview(null);
+                                    }}
+                                    placeholder="Tambahkan komentar untuk file ini..."
+                                    rows={2}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-700 placeholder-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-100 transition-all resize-none outline-none"
+                                  />
+                                </div>
+                              </div>
+                            )}
                             {isOpen && secretPreviews[index] && (
                               <div className="px-3 pb-3 animate-slideDown">
                                 {renderPreview(secretPreviews[index])}
@@ -736,7 +807,6 @@ export function App() {
                       </div>
                     </div>
 
-                    {/* Stego result preview — always visible */}
                     {stegoPreview && renderPreview(stegoPreview)}
 
                     <div className="bg-slate-50 rounded-xl p-3 mt-3">
@@ -784,7 +854,6 @@ export function App() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
               {/* Left column: inputs */}
               <div className="lg:col-span-1 space-y-5">
-                {/* Stego file input */}
                 <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
                   <div className="flex items-center gap-2.5 mb-4">
                     <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">1</div>
@@ -807,7 +876,6 @@ export function App() {
                     </button>
                   ) : (
                     <div className="space-y-3">
-                      {/* File info bar */}
                       <div className="flex items-center gap-3 bg-slate-50 rounded-xl p-3">
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getFileIconColor(stegoFile.type, stegoFile.name)}`}>
                           {getFileIconEl(stegoFile.type, stegoFile.name)}
@@ -823,11 +891,7 @@ export function App() {
                           <X className="w-4 h-4" />
                         </button>
                       </div>
-
-                      {/* Preview of the stego file — always visible */}
                       {stegoFilePreview && renderPreview(stegoFilePreview)}
-
-                      {/* Status badge */}
                       {stegoDetected && (
                         <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl animate-fadeIn">
                           <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
@@ -838,7 +902,6 @@ export function App() {
                   )}
                 </section>
 
-                {/* Password */}
                 {stegoFile && needsPassword && (
                   <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
                     <div className="flex items-center gap-2.5 mb-3">
@@ -865,7 +928,6 @@ export function App() {
                   </section>
                 )}
 
-                {/* Decrypt button */}
                 {stegoFile && stegoDetected && (
                   <button
                     onClick={handleDecrypt}
@@ -907,27 +969,45 @@ export function App() {
                     </div>
 
                     {/* File list */}
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {decryptedFiles.map((file) => {
                         const cat = getFileCategory(file.type, file.name);
-                        const hasPreview = cat !== 'other' && filePreviews[file.id];
+                        const hasMediaPreview = cat !== 'other' && filePreviews[file.id];
+                        const hasComment = !!(file.comment);
+                        const hasExpandableContent = hasMediaPreview || hasComment;
                         const isOpen = openedDecryptPreviews.has(file.id);
+                        const isEditing = editingComments.has(file.id);
                         return (
                           <div key={file.id} className="rounded-xl overflow-hidden border border-slate-100 file-item">
+                            {/* File info row */}
                             <div className="flex items-center gap-3 p-3">
                               <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${getFileIconColor(file.type, file.name)}`}>
                                 {getFileIconEl(file.type, file.name)}
                               </div>
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
-                                <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
+                                  {/* Comment indicator badge — only when collapsed and has comment */}
+                                  {!isOpen && hasComment && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md">
+                                      <MessageSquare className="w-2.5 h-2.5" />
+                                      Komentar
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                               <div className="flex items-center gap-0.5 shrink-0">
-                                {hasPreview && (
+                                {/* Toggle preview + comment button */}
+                                {hasExpandableContent && (
                                   <button
                                     onClick={() => openDecryptPreview(file.id)}
-                                    className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
-                                    title={isOpen ? 'Tutup preview' : 'Lihat preview'}
+                                    className={`p-2 rounded-lg transition-all cursor-pointer ${
+                                      isOpen
+                                        ? 'bg-violet-50 text-violet-500'
+                                        : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
+                                    }`}
+                                    title={isOpen ? 'Tutup detail' : 'Lihat detail'}
                                   >
                                     {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                                   </button>
@@ -948,9 +1028,51 @@ export function App() {
                                 </button>
                               </div>
                             </div>
-                            {isOpen && hasPreview && (
-                              <div className="px-3 pb-3 animate-slideDown">
-                                {renderDecryptPreview(file.id, file.type, file.name)}
+
+                            {/* Expandable content: media preview + comment (hidden by default) */}
+                            {isOpen && (
+                              <div className="px-3 pb-3 space-y-3 animate-slideDown">
+                                {/* Media preview */}
+                                {hasMediaPreview && renderDecryptPreview(file.id, file.type, file.name)}
+
+                                {/* Comment section */}
+                                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <MessageSquare className="w-3 h-3 text-amber-500" />
+                                      <span className="text-[11px] font-semibold text-amber-600 uppercase tracking-wide">Komentar</span>
+                                    </div>
+                                    <button
+                                      onClick={() => toggleEditComment(file.id)}
+                                      className={`text-[11px] font-semibold px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                                        isEditing
+                                          ? 'text-amber-700 bg-amber-200 hover:bg-amber-300'
+                                          : 'text-amber-500 hover:text-amber-600 hover:bg-amber-100'
+                                      }`}
+                                    >
+                                      {isEditing ? 'Selesai' : 'Edit'}
+                                    </button>
+                                  </div>
+
+                                  {isEditing ? (
+                                    <textarea
+                                      value={file.comment || ''}
+                                      onChange={(e) => updateDecryptedFileComment(file.id, e.target.value)}
+                                      placeholder="Tulis komentar..."
+                                      rows={2}
+                                      className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-xs text-slate-700 placeholder-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all resize-none outline-none"
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    <p className={`text-xs leading-relaxed whitespace-pre-wrap ${
+                                      file.comment
+                                        ? 'text-slate-600'
+                                        : 'text-slate-400 italic'
+                                    }`}>
+                                      {file.comment || 'Tidak ada komentar.'}
+                                    </p>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>
@@ -960,7 +1082,6 @@ export function App() {
 
                     {/* Action buttons */}
                     <div className="mt-5 pt-5 border-t border-slate-100 space-y-2.5">
-                      {/* Download All */}
                       <button
                         onClick={downloadAllFiles}
                         disabled={downloadingAll}
@@ -973,7 +1094,6 @@ export function App() {
                         )}
                       </button>
 
-                      {/* Update stego */}
                       {modified && (
                         <button
                           onClick={handleUpdateStego}
@@ -1007,7 +1127,7 @@ export function App() {
       {/* ====== FOOTER ====== */}
       <footer className="border-t border-slate-100 mt-auto bg-white">
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 text-center text-xs text-slate-400">
-          &copy; 2025 Steganografi Multi-Media. Semua proses dilakukan secara lokal di browser Anda.
+          &copy; 2026 Steganografi Multi-Media. Semua proses dilakukan secara lokal di browser Anda.
         </div>
       </footer>
     </div>
