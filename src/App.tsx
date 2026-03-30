@@ -439,7 +439,7 @@ export function App() {
     if (!stegoBuffer) return showToast('Pilih file stego terlebih dahulu!', 'error');
     setDecrypting(true);
     try {
-      const files = extractFiles(stegoBuffer, decryptPassword || undefined);
+const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
       setDecryptedFiles(files);
       setModified(false);
       setOpenedDecryptPreviews(new Set());
