@@ -7,6 +7,7 @@ import {
   AlertCircle, CheckCircle, Loader2, Package,
   Shield, Info, DownloadCloud, AlertTriangle,
   EyeOff, LockKeyhole, MessageSquare, MessageSquarePlus,
+  Maximize2, Edit3, Check, KeyRound,
 } from 'lucide-react';
 import {
   embedFiles, extractFiles, checkForHiddenData, reEmbedFiles,
@@ -37,6 +38,12 @@ interface ConfirmDialog {
   fileName: string;
 }
 
+interface ImageLightbox {
+  open: boolean;
+  src: string;
+  alt: string;
+}
+
 function getFileIconEl(type: string, name: string) {
   const cat = getFileCategory(type, name);
   switch (cat) {
@@ -63,6 +70,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<Tab>('embed');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog>({ open: false, fileId: '', fileName: '' });
+  const [lightbox, setLightbox] = useState<ImageLightbox>({ open: false, src: '', alt: '' });
 
   // Embed state
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -77,6 +85,8 @@ export function App() {
   const [openedEmbedPreviews, setOpenedEmbedPreviews] = useState<Set<number>>(new Set());
   const [embedComments, setEmbedComments] = useState<Record<number, string>>({});
   const [openedEmbedComments, setOpenedEmbedComments] = useState<Set<number>>(new Set());
+  const [stegoOutputName, setStegoOutputName] = useState('');
+  const [editingStegoName, setEditingStegoName] = useState(false);
 
   // Decrypt state
   const [stegoFile, setStegoFile] = useState<File | null>(null);
@@ -94,6 +104,13 @@ export function App() {
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [stegoDetected, setStegoDetected] = useState(false);
   const [editingComments, setEditingComments] = useState<Set<string>>(new Set());
+  const [decryptionDone, setDecryptionDone] = useState(false);
+  const [editingFileNames, setEditingFileNames] = useState<Set<string>>(new Set());
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [passwordChanged, setPasswordChanged] = useState(false);
+  const [updatingPassword, setUpdatingPassword] = useState(false);
+  const [originalDecryptPassword, setOriginalDecryptPassword] = useState('');
 
   const coverInputRef = useRef<HTMLInputElement>(null);
   const secretInputRef = useRef<HTMLInputElement>(null);
@@ -125,6 +142,8 @@ export function App() {
     setCoverFile(file);
     setStegoResult(null);
     setStegoPreview(null);
+    setStegoOutputName('');
+    setEditingStegoName(false);
     const preview = await buildFilePreview(file);
     setCoverPreview(preview);
   };
@@ -135,6 +154,8 @@ export function App() {
     setSecretFiles((prev) => [...prev, ...files]);
     setStegoResult(null);
     setStegoPreview(null);
+    setStegoOutputName('');
+    setEditingStegoName(false);
     const previews = await Promise.all(files.map(buildFilePreview));
     setSecretPreviews((prev) => [...prev, ...previews]);
     if (secretInputRef.current) secretInputRef.current.value = '';
@@ -145,6 +166,8 @@ export function App() {
     setSecretPreviews((prev) => prev.filter((_, i) => i !== index));
     setStegoResult(null);
     setStegoPreview(null);
+    setStegoOutputName('');
+    setEditingStegoName(false);
     setOpenedEmbedPreviews((prev) => {
       const next = new Set<number>();
       prev.forEach((i) => {
@@ -208,6 +231,22 @@ export function App() {
     });
   };
 
+  const toggleEditFileName = (fileId: string) => {
+    setEditingFileNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
+      return next;
+    });
+  };
+
+  const updateDecryptedFileName = (fileId: string, name: string) => {
+    setDecryptedFiles((prev) =>
+      prev.map((f) => (f.id === fileId ? { ...f, name } : f))
+    );
+    setModified(true);
+  };
+
   const updateDecryptedFileComment = (fileId: string, comment: string) => {
     setDecryptedFiles((prev) =>
       prev.map((f) => (f.id === fileId ? { ...f, comment } : f))
@@ -224,8 +263,11 @@ export function App() {
       const { blob, extension } = await embedFiles(coverFile, secretFiles, embedPassword || undefined, embedComments);
       const url = URL.createObjectURL(blob);
       setStegoResult({ url, extension });
+      const defaultName = `stego_file.${extension}`;
+      setStegoOutputName(defaultName);
+      setEditingStegoName(false);
 
-      const sp: FilePreview = { name: `stego_file.${extension}`, size: blob.size, type: coverFile.type };
+      const sp: FilePreview = { name: defaultName, size: blob.size, type: coverFile.type };
       const cat = getFileCategory(coverFile.type, coverFile.name);
       if (cat === 'image') sp.url = await blobToDataURL(blob);
       else if (cat === 'text') sp.text = await blobToText(blob);
@@ -253,6 +295,12 @@ export function App() {
     setOpenedDecryptPreviews(new Set());
     setEditingComments(new Set());
     setStegoDetected(false);
+    setDecryptionDone(false);
+    setEditingFileNames(new Set());
+    setNewPassword('');
+    setShowNewPassword(false);
+    setPasswordChanged(false);
+    setOriginalDecryptPassword('');
 
     const preview = await buildFilePreview(file);
     setStegoFilePreview(preview);
@@ -283,6 +331,11 @@ export function App() {
       setModified(false);
       setOpenedDecryptPreviews(new Set());
       setEditingComments(new Set());
+      setEditingFileNames(new Set());
+      setDecryptionDone(true);
+      setOriginalDecryptPassword(decryptPassword);
+      setNewPassword(decryptPassword);
+      setPasswordChanged(false);
       showToast(`Berhasil mendekripsi ${files.length} file!`, 'success');
 
       const previews: Record<string, string> = {};
@@ -313,6 +366,11 @@ export function App() {
       return next;
     });
     setEditingComments((prev) => {
+      const next = new Set(prev);
+      next.delete(confirmDialog.fileId);
+      return next;
+    });
+    setEditingFileNames((prev) => {
       const next = new Set(prev);
       next.delete(confirmDialog.fileId);
       return next;
@@ -355,7 +413,7 @@ export function App() {
     if (!stegoBuffer || decryptedFiles.length === 0) return;
     setUpdating(true);
     try {
-      const newBlob = await reEmbedFiles(stegoBuffer, decryptedFiles, decryptPassword || undefined);
+      const newBlob = await reEmbedFiles(stegoBuffer, decryptedFiles, originalDecryptPassword || undefined);
       const newBuffer = await newBlob.arrayBuffer();
       setStegoBuffer(newBuffer);
       const url = URL.createObjectURL(newBlob);
@@ -370,6 +428,30 @@ export function App() {
       showToast(`Error: ${(err as Error).message}`, 'error');
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!stegoBuffer || decryptedFiles.length === 0) return;
+    setUpdatingPassword(true);
+    try {
+      const newBlob = await reEmbedFiles(stegoBuffer, decryptedFiles, newPassword || undefined);
+      const newBuffer = await newBlob.arrayBuffer();
+      setStegoBuffer(newBuffer);
+      const url = URL.createObjectURL(newBlob);
+      const ext = stegoFile?.name.split('.').pop() || 'bin';
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `updated_stego.${ext}`;
+      a.click();
+      setOriginalDecryptPassword(newPassword);
+      setPasswordChanged(false);
+      setModified(false);
+      showToast('Password diperbarui dan file diunduh!', 'success');
+    } catch (err) {
+      showToast(`Error: ${(err as Error).message}`, 'error');
+    } finally {
+      setUpdatingPassword(false);
     }
   };
 
@@ -406,12 +488,31 @@ export function App() {
     }
   };
 
-  const renderPreview = (preview: FilePreview) => {
+  const openLightbox = (src: string, alt: string) => {
+    setLightbox({ open: true, src, alt });
+  };
+
+  const closeLightbox = () => {
+    setLightbox({ open: false, src: '', alt: '' });
+  };
+
+  const renderPreview = (preview: FilePreview, clickableImage = false) => {
     const cat = getFileCategory(preview.type, preview.name);
     if (cat === 'image' && preview.url) {
       return (
-        <div className="rounded-xl overflow-hidden bg-slate-50 border border-slate-200">
+        <div className="rounded-xl overflow-hidden bg-slate-50 border border-slate-200 relative group">
           <img src={preview.url} alt={preview.name} className="w-full max-h-64 object-contain" />
+          {clickableImage && (
+            <button
+              onClick={() => openLightbox(preview.url!, preview.name)}
+              className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer"
+            >
+              <div className="bg-white/90 backdrop-blur-sm rounded-xl px-3 py-2 flex items-center gap-2 shadow-lg">
+                <Maximize2 className="w-4 h-4 text-slate-700" />
+                <span className="text-xs font-semibold text-slate-700">Lihat Penuh</span>
+              </div>
+            </button>
+          )}
         </div>
       );
     }
@@ -442,8 +543,17 @@ export function App() {
     const cat = getFileCategory(type, name);
     if (cat === 'image') {
       return (
-        <div className="rounded-xl overflow-hidden bg-slate-50 border border-slate-200">
+        <div className="rounded-xl overflow-hidden bg-slate-50 border border-slate-200 relative group">
           <img src={previewData} alt={name} className="w-full max-h-56 object-contain" />
+          <button
+            onClick={() => openLightbox(previewData, name)}
+            className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer"
+          >
+            <div className="bg-white/90 backdrop-blur-sm rounded-xl px-3 py-2 flex items-center gap-2 shadow-lg">
+              <Maximize2 className="w-4 h-4 text-slate-700" />
+              <span className="text-xs font-semibold text-slate-700">Lihat Penuh</span>
+            </div>
+          </button>
         </div>
       );
     }
@@ -481,11 +591,40 @@ export function App() {
     setOpenedDecryptPreviews(new Set());
     setEditingComments(new Set());
     setStegoDetected(false);
+    setDecryptionDone(false);
+    setEditingFileNames(new Set());
+    setNewPassword('');
+    setShowNewPassword(false);
+    setPasswordChanged(false);
+    setOriginalDecryptPassword('');
     if (stegoInputRef.current) stegoInputRef.current.value = '';
   };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
+      {/* ====== IMAGE LIGHTBOX ====== */}
+      {lightbox.open && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 animate-overlayIn">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={closeLightbox} />
+          <div className="relative max-w-[95vw] max-h-[95vh] animate-scaleIn">
+            <button
+              onClick={closeLightbox}
+              className="absolute -top-3 -right-3 z-10 w-10 h-10 rounded-full bg-white shadow-xl flex items-center justify-center hover:bg-red-50 text-slate-500 hover:text-red-500 transition-all cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={lightbox.src}
+              alt={lightbox.alt}
+              className="max-w-[95vw] max-h-[90vh] object-contain rounded-2xl shadow-2xl"
+            />
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent rounded-b-2xl p-4">
+              <p className="text-white text-sm font-semibold truncate">{lightbox.alt}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ====== CONFIRMATION DIALOG ====== */}
       {confirmDialog.open && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-overlayIn">
@@ -626,7 +765,7 @@ export function App() {
                           <p className="text-xs text-slate-400">{formatFileSize(coverFile.size)}</p>
                         </div>
                         <button
-                          onClick={() => { setCoverFile(null); setCoverPreview(null); setStegoResult(null); setStegoPreview(null); if (coverInputRef.current) coverInputRef.current.value = ''; }}
+                          onClick={() => { setCoverFile(null); setCoverPreview(null); setStegoResult(null); setStegoPreview(null); setStegoOutputName(''); setEditingStegoName(false); if (coverInputRef.current) coverInputRef.current.value = ''; }}
                           className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all shrink-0 cursor-pointer"
                         >
                           <X className="w-4 h-4" />
@@ -732,6 +871,8 @@ export function App() {
                                       setEmbedComments((prev) => ({ ...prev, [index]: e.target.value }));
                                       setStegoResult(null);
                                       setStegoPreview(null);
+                                      setStegoOutputName('');
+                                      setEditingStegoName(false);
                                     }}
                                     placeholder="Tambahkan komentar untuk file ini..."
                                     rows={2}
@@ -807,7 +948,7 @@ export function App() {
                       </div>
                     </div>
 
-                    {stegoPreview && renderPreview(stegoPreview)}
+                    {stegoPreview && renderPreview(stegoPreview, true)}
 
                     <div className="bg-slate-50 rounded-xl p-3 mt-3">
                       <div className="flex items-center gap-3">
@@ -815,15 +956,45 @@ export function App() {
                           <Package className="w-5 h-5" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-slate-700 truncate">stego_file.{stegoResult.extension}</p>
-                          {stegoPreview && <p className="text-xs text-slate-400">{formatFileSize(stegoPreview.size)}</p>}
+                          {editingStegoName ? (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                value={stegoOutputName}
+                                onChange={(e) => setStegoOutputName(e.target.value)}
+                                className="flex-1 min-w-0 bg-white border border-emerald-300 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-emerald-100 outline-none transition-all"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') setEditingStegoName(false);
+                                }}
+                              />
+                              <button
+                                onClick={() => setEditingStegoName(false)}
+                                className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-all cursor-pointer shrink-0"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 group">
+                              <p className="text-sm font-semibold text-slate-700 truncate">{stegoOutputName}</p>
+                              <button
+                                onClick={() => setEditingStegoName(true)}
+                                className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-emerald-100 text-slate-400 hover:text-emerald-600 transition-all cursor-pointer shrink-0"
+                                title="Ubah nama file"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                          {stegoPreview && <p className="text-xs text-slate-400 mt-0.5">{formatFileSize(stegoPreview.size)}</p>}
                         </div>
                       </div>
                     </div>
 
                     <a
                       href={stegoResult.url}
-                      download={`stego_file.${stegoResult.extension}`}
+                      download={stegoOutputName || `stego_file.${stegoResult.extension}`}
                       className="mt-4 w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-sm font-bold transition-colors active:scale-[0.98]"
                     >
                       <Download className="w-4 h-4" />Unduh File
@@ -891,7 +1062,7 @@ export function App() {
                           <X className="w-4 h-4" />
                         </button>
                       </div>
-                      {stegoFilePreview && renderPreview(stegoFilePreview)}
+                      {stegoFilePreview && renderPreview(stegoFilePreview, true)}
                       {stegoDetected && (
                         <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl animate-fadeIn">
                           <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
@@ -902,7 +1073,7 @@ export function App() {
                   )}
                 </section>
 
-                {stegoFile && needsPassword && (
+                {stegoFile && needsPassword && !decryptionDone && (
                   <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
                     <div className="flex items-center gap-2.5 mb-3">
                       <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">2</div>
@@ -928,7 +1099,8 @@ export function App() {
                   </section>
                 )}
 
-                {stegoFile && stegoDetected && (
+                {/* Decrypt button - hidden after successful decryption */}
+                {stegoFile && stegoDetected && !decryptionDone && (
                   <button
                     onClick={handleDecrypt}
                     disabled={decrypting || (needsPassword && !decryptPassword)}
@@ -940,6 +1112,68 @@ export function App() {
                       <><Unlock className="w-4 h-4" />Dekripsi</>
                     )}
                   </button>
+                )}
+
+                {/* Decryption success indicator */}
+                {decryptionDone && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 animate-fadeUp">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-emerald-700">Dekripsi Berhasil</p>
+                        <p className="text-xs text-emerald-500">{decryptedFiles.length} file diekstrak</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Update password section - shown after decryption */}
+                {decryptionDone && (
+                  <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-500 flex items-center justify-center">
+                        <KeyRound className="w-3.5 h-3.5" />
+                      </div>
+                      <h3 className="text-sm font-bold text-slate-700">Ubah Password</h3>
+                      <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wide">Opsional</span>
+                    </div>
+                    <p className="text-xs text-slate-400 mb-3">Ubah password dan unduh file cover dengan password baru.</p>
+                    <div className="relative">
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type={showNewPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => {
+                          setNewPassword(e.target.value);
+                          setPasswordChanged(e.target.value !== originalDecryptPassword);
+                        }}
+                        placeholder="Password baru..."
+                        className="focus-ring w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-amber-300 transition-all"
+                      />
+                      <button
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+                      >
+                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+
+                    {passwordChanged && (
+                      <button
+                        onClick={handleUpdatePassword}
+                        disabled={updatingPassword}
+                        className="mt-3 w-full bg-gradient-to-r from-amber-500 to-orange-500 text-white py-3 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-amber-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer animate-fadeIn"
+                      >
+                        {updatingPassword ? (
+                          <><Loader2 className="w-4 h-4 animate-spin" />Memperbarui Password...</>
+                        ) : (
+                          <><KeyRound className="w-4 h-4" />Update Password & Unduh</>
+                        )}
+                      </button>
+                    )}
+                  </section>
                 )}
               </div>
 
@@ -974,9 +1208,10 @@ export function App() {
                         const cat = getFileCategory(file.type, file.name);
                         const hasMediaPreview = cat !== 'other' && filePreviews[file.id];
                         const hasComment = !!(file.comment);
-                        const hasExpandableContent = hasMediaPreview || hasComment;
+                        const hasExpandableContent = hasMediaPreview || hasComment || true; // Always expandable for comment editing
                         const isOpen = openedDecryptPreviews.has(file.id);
                         const isEditing = editingComments.has(file.id);
+                        const isEditingName = editingFileNames.has(file.id);
                         return (
                           <div key={file.id} className="rounded-xl overflow-hidden border border-slate-100 file-item">
                             {/* File info row */}
@@ -985,7 +1220,37 @@ export function App() {
                                 {getFileIconEl(file.type, file.name)}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
+                                {isEditingName ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="text"
+                                      value={file.name}
+                                      onChange={(e) => updateDecryptedFileName(file.id, e.target.value)}
+                                      className="flex-1 min-w-0 bg-white border border-violet-300 rounded-lg px-2.5 py-1 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-violet-100 outline-none transition-all"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') toggleEditFileName(file.id);
+                                      }}
+                                    />
+                                    <button
+                                      onClick={() => toggleEditFileName(file.id)}
+                                      className="p-1.5 rounded-lg bg-violet-100 text-violet-600 hover:bg-violet-200 transition-all cursor-pointer shrink-0"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 group/name">
+                                    <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
+                                    <button
+                                      onClick={() => toggleEditFileName(file.id)}
+                                      className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-violet-50 text-slate-400 hover:text-violet-500 transition-all cursor-pointer shrink-0"
+                                      title="Ubah nama file"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                )}
                                 <div className="flex items-center gap-2">
                                   <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
                                   {/* Comment indicator badge — only when collapsed and has comment */}
@@ -1029,7 +1294,7 @@ export function App() {
                               </div>
                             </div>
 
-                            {/* Expandable content: media preview + comment (hidden by default) */}
+                            {/* Expandable content: media preview + comment */}
                             {isOpen && (
                               <div className="px-3 pb-3 space-y-3 animate-slideDown">
                                 {/* Media preview */}
