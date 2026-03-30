@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import JSZip from 'jszip';
 import {
   Unlock, Upload, X, Download, Lock, Eye,
@@ -87,6 +87,8 @@ export function App() {
   const [openedEmbedComments, setOpenedEmbedComments] = useState<Set<number>>(new Set());
   const [stegoOutputName, setStegoOutputName] = useState('');
   const [editingStegoName, setEditingStegoName] = useState(false);
+  const [editingEmbedFileNames, setEditingEmbedFileNames] = useState<Set<number>>(new Set());
+  const [embedFileNames, setEmbedFileNames] = useState<Record<number, string>>({});
 
   // Decrypt state
   const [stegoFile, setStegoFile] = useState<File | null>(null);
@@ -105,12 +107,14 @@ export function App() {
   const [stegoDetected, setStegoDetected] = useState(false);
   const [editingComments, setEditingComments] = useState<Set<string>>(new Set());
   const [decryptionDone, setDecryptionDone] = useState(false);
+  const [showDecryptSuccess, setShowDecryptSuccess] = useState(false);
   const [editingFileNames, setEditingFileNames] = useState<Set<string>>(new Set());
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [passwordChanged, setPasswordChanged] = useState(false);
   const [updatingPassword, setUpdatingPassword] = useState(false);
   const [originalDecryptPassword, setOriginalDecryptPassword] = useState('');
+  const [allDecryptPreviewsOpen, setAllDecryptPreviewsOpen] = useState(false);
 
   const coverInputRef = useRef<HTMLInputElement>(null);
   const secretInputRef = useRef<HTMLInputElement>(null);
@@ -122,6 +126,14 @@ export function App() {
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
   }, []);
+
+  // Auto-hide decrypt success after 3 seconds
+  useEffect(() => {
+    if (showDecryptSuccess) {
+      const timer = setTimeout(() => setShowDecryptSuccess(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [showDecryptSuccess]);
 
   async function buildFilePreview(file: File): Promise<FilePreview> {
     const preview: FilePreview = { name: file.name, size: file.size, type: file.type };
@@ -135,6 +147,10 @@ export function App() {
     }
     return preview;
   }
+
+  const getEmbedFileName = (index: number): string => {
+    return embedFileNames[index] ?? secretFiles[index]?.name ?? '';
+  };
 
   const handleCoverSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -193,6 +209,23 @@ export function App() {
       });
       return next;
     });
+    setEmbedFileNames((prev) => {
+      const next: Record<number, string> = {};
+      Object.entries(prev).forEach(([key, val]) => {
+        const k = Number(key);
+        if (k < index) next[k] = val;
+        else if (k > index) next[k - 1] = val;
+      });
+      return next;
+    });
+    setEditingEmbedFileNames((prev) => {
+      const next = new Set<number>();
+      prev.forEach((i) => {
+        if (i < index) next.add(i);
+        else if (i > index) next.add(i - 1);
+      });
+      return next;
+    });
   };
 
   const openEmbedPreview = (index: number) => {
@@ -213,6 +246,22 @@ export function App() {
     });
   };
 
+  const toggleEditEmbedFileName = (index: number) => {
+    setEditingEmbedFileNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        // Initialize with current name if not set
+        if (!(index in embedFileNames)) {
+          setEmbedFileNames((p) => ({ ...p, [index]: secretFiles[index]?.name ?? '' }));
+        }
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
   const openDecryptPreview = (fileId: string) => {
     setOpenedDecryptPreviews((prev) => {
       const next = new Set(prev);
@@ -220,6 +269,17 @@ export function App() {
       else next.add(fileId);
       return next;
     });
+  };
+
+  const toggleAllDecryptPreviews = () => {
+    if (allDecryptPreviewsOpen) {
+      setOpenedDecryptPreviews(new Set());
+      setAllDecryptPreviewsOpen(false);
+    } else {
+      const allIds = new Set(decryptedFiles.map((f) => f.id));
+      setOpenedDecryptPreviews(allIds);
+      setAllDecryptPreviewsOpen(true);
+    }
   };
 
   const toggleEditComment = (fileId: string) => {
@@ -260,7 +320,16 @@ export function App() {
 
     setEmbedding(true);
     try {
-      const { blob, extension } = await embedFiles(coverFile, secretFiles, embedPassword || undefined, embedComments);
+      // Create renamed files based on embedFileNames
+      const renamedFiles = secretFiles.map((file, index) => {
+        const customName = embedFileNames[index];
+        if (customName && customName !== file.name) {
+          return new File([file], customName, { type: file.type });
+        }
+        return file;
+      });
+
+      const { blob, extension } = await embedFiles(coverFile, renamedFiles, embedPassword || undefined, embedComments);
       const url = URL.createObjectURL(blob);
       setStegoResult({ url, extension });
       const defaultName = `stego_file.${extension}`;
@@ -296,11 +365,13 @@ export function App() {
     setEditingComments(new Set());
     setStegoDetected(false);
     setDecryptionDone(false);
+    setShowDecryptSuccess(false);
     setEditingFileNames(new Set());
     setNewPassword('');
     setShowNewPassword(false);
     setPasswordChanged(false);
     setOriginalDecryptPassword('');
+    setAllDecryptPreviewsOpen(false);
 
     const preview = await buildFilePreview(file);
     setStegoFilePreview(preview);
@@ -333,9 +404,11 @@ export function App() {
       setEditingComments(new Set());
       setEditingFileNames(new Set());
       setDecryptionDone(true);
+      setShowDecryptSuccess(true);
       setOriginalDecryptPassword(decryptPassword);
       setNewPassword(decryptPassword);
       setPasswordChanged(false);
+      setAllDecryptPreviewsOpen(false);
       showToast(`Berhasil mendekripsi ${files.length} file!`, 'success');
 
       const previews: Record<string, string> = {};
@@ -592,11 +665,13 @@ export function App() {
     setEditingComments(new Set());
     setStegoDetected(false);
     setDecryptionDone(false);
+    setShowDecryptSuccess(false);
     setEditingFileNames(new Set());
     setNewPassword('');
     setShowNewPassword(false);
     setPasswordChanged(false);
     setOriginalDecryptPassword('');
+    setAllDecryptPreviewsOpen(false);
     if (stegoInputRef.current) stegoInputRef.current.value = '';
   };
 
@@ -765,7 +840,11 @@ export function App() {
                           <p className="text-xs text-slate-400">{formatFileSize(coverFile.size)}</p>
                         </div>
                         <button
-                          onClick={() => { setCoverFile(null); setCoverPreview(null); setStegoResult(null); setStegoPreview(null); setStegoOutputName(''); setEditingStegoName(false); if (coverInputRef.current) coverInputRef.current.value = ''; }}
+                          onClick={() => {
+                            setCoverFile(null); setCoverPreview(null); setStegoResult(null); setStegoPreview(null);
+                            setStegoOutputName(''); setEditingStegoName(false);
+                            if (coverInputRef.current) coverInputRef.current.value = '';
+                          }}
                           className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all shrink-0 cursor-pointer"
                         >
                           <X className="w-4 h-4" />
@@ -817,6 +896,8 @@ export function App() {
                         const isOpen = openedEmbedPreviews.has(index);
                         const isCommentOpen = openedEmbedComments.has(index);
                         const comment = embedComments[index] || '';
+                        const isEditingName = editingEmbedFileNames.has(index);
+                        const displayName = getEmbedFileName(index);
                         return (
                           <div key={index} className="rounded-xl overflow-hidden border border-slate-100 file-item">
                             <div className="flex items-center gap-3 p-3">
@@ -824,7 +905,43 @@ export function App() {
                                 {getFileIconEl(file.type, file.name)}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
+                                {isEditingName ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="text"
+                                      value={embedFileNames[index] ?? file.name}
+                                      onChange={(e) => {
+                                        setEmbedFileNames((prev) => ({ ...prev, [index]: e.target.value }));
+                                        setStegoResult(null);
+                                        setStegoPreview(null);
+                                        setStegoOutputName('');
+                                        setEditingStegoName(false);
+                                      }}
+                                      className="flex-1 min-w-0 bg-white border border-orange-300 rounded-lg px-2.5 py-1 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') toggleEditEmbedFileName(index);
+                                      }}
+                                    />
+                                    <button
+                                      onClick={() => toggleEditEmbedFileName(index)}
+                                      className="p-1.5 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 transition-all cursor-pointer shrink-0"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 group/name">
+                                    <p className="text-sm font-medium text-slate-700 truncate">{displayName}</p>
+                                    <button
+                                      onClick={() => toggleEditEmbedFileName(index)}
+                                      className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-orange-50 text-slate-400 hover:text-orange-500 transition-all cursor-pointer shrink-0"
+                                      title="Ubah nama file"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                )}
                                 <div className="flex items-center gap-2">
                                   <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
                                   {comment && (
@@ -1073,6 +1190,7 @@ export function App() {
                   )}
                 </section>
 
+                {/* Password - shown before decryption if needed */}
                 {stegoFile && needsPassword && !decryptionDone && (
                   <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
                     <div className="flex items-center gap-2.5 mb-3">
@@ -1114,9 +1232,9 @@ export function App() {
                   </button>
                 )}
 
-                {/* Decryption success indicator */}
-                {decryptionDone && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 animate-fadeUp">
+                {/* Decryption success - auto hides after 3 seconds */}
+                {showDecryptSuccess && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 animate-fadeUp transition-all">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
                         <CheckCircle className="w-4 h-4 text-emerald-600" />
@@ -1194,6 +1312,18 @@ export function App() {
                       <div className="flex items-center gap-2">
                         <input ref={addFileInputRef} type="file" multiple className="hidden" onChange={handleAddFileToDecrypted} />
                         <button
+                          onClick={toggleAllDecryptPreviews}
+                          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all cursor-pointer ${
+                            allDecryptPreviewsOpen
+                              ? 'text-violet-600 bg-violet-100 hover:bg-violet-200'
+                              : 'text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100'
+                          }`}
+                          title={allDecryptPreviewsOpen ? 'Tutup semua preview' : 'Buka semua preview'}
+                        >
+                          {allDecryptPreviewsOpen ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          <span className="hidden sm:inline">{allDecryptPreviewsOpen ? 'Tutup Semua' : 'Buka Semua'}</span>
+                        </button>
+                        <button
                           onClick={() => addFileInputRef.current?.click()}
                           className="flex items-center gap-1.5 text-xs font-semibold text-violet-500 hover:text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-2 rounded-lg transition-all cursor-pointer"
                         >
@@ -1208,7 +1338,6 @@ export function App() {
                         const cat = getFileCategory(file.type, file.name);
                         const hasMediaPreview = cat !== 'other' && filePreviews[file.id];
                         const hasComment = !!(file.comment);
-                        const hasExpandableContent = hasMediaPreview || hasComment || true; // Always expandable for comment editing
                         const isOpen = openedDecryptPreviews.has(file.id);
                         const isEditing = editingComments.has(file.id);
                         const isEditingName = editingFileNames.has(file.id);
@@ -1253,7 +1382,6 @@ export function App() {
                                 )}
                                 <div className="flex items-center gap-2">
                                   <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
-                                  {/* Comment indicator badge — only when collapsed and has comment */}
                                   {!isOpen && hasComment && (
                                     <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md">
                                       <MessageSquare className="w-2.5 h-2.5" />
@@ -1263,20 +1391,17 @@ export function App() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-0.5 shrink-0">
-                                {/* Toggle preview + comment button */}
-                                {hasExpandableContent && (
-                                  <button
-                                    onClick={() => openDecryptPreview(file.id)}
-                                    className={`p-2 rounded-lg transition-all cursor-pointer ${
-                                      isOpen
-                                        ? 'bg-violet-50 text-violet-500'
-                                        : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
-                                    }`}
-                                    title={isOpen ? 'Tutup detail' : 'Lihat detail'}
-                                  >
-                                    {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                                  </button>
-                                )}
+                                <button
+                                  onClick={() => openDecryptPreview(file.id)}
+                                  className={`p-2 rounded-lg transition-all cursor-pointer ${
+                                    isOpen
+                                      ? 'bg-violet-50 text-violet-500'
+                                      : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
+                                  }`}
+                                  title={isOpen ? 'Tutup detail' : 'Lihat detail'}
+                                >
+                                  {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                </button>
                                 <button
                                   onClick={() => downloadFile(file)}
                                   className="p-2 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-500 transition-all cursor-pointer"
@@ -1294,13 +1419,11 @@ export function App() {
                               </div>
                             </div>
 
-                            {/* Expandable content: media preview + comment */}
+                            {/* Expandable content */}
                             {isOpen && (
                               <div className="px-3 pb-3 space-y-3 animate-slideDown">
-                                {/* Media preview */}
                                 {hasMediaPreview && renderDecryptPreview(file.id, file.type, file.name)}
 
-                                {/* Comment section */}
                                 <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
                                   <div className="flex items-center justify-between mb-1.5">
                                     <div className="flex items-center gap-1.5">
