@@ -978,7 +978,7 @@ export function App() {
                       {!embedPassword && (
                         <span className="text-[10px] text-slate-400 flex items-center gap-1">
                           <Lock className="w-3 h-3" />
-                          Isi password untuk memilih
+                          Jika tidak memakai password, file tidak di enkripsi
                         </span>
                       )}
                     </div>
