@@ -1,5 +1,3 @@
-// utils/stego.ts
-
 export interface HiddenFile {
   id: string;
   name: string;
@@ -8,6 +6,8 @@ export interface HiddenFile {
   data: ArrayBuffer;
   comment?: string;
 }
+
+export type EncryptionMethod = 'xor' | 'aes';
 
 const MAGIC_BYTES = [0x53, 0x54, 0x45, 0x47]; // "STEG"
 const AES_SALT_LENGTH = 16;
@@ -19,7 +19,21 @@ function generateId(): string {
 }
 
 // ──────────────────────────────────────────────
-// AES-256-GCM Encryption / Decryption
+// XOR Encryption (tanpa base64)
+// ──────────────────────────────────────────────
+
+function xorEncrypt(data: Uint8Array, password: string): Uint8Array {
+  if (!password) return data;
+  const result = new Uint8Array(data.length);
+  const passBytes = new TextEncoder().encode(password);
+  for (let i = 0; i < data.length; i++) {
+    result[i] = data[i] ^ passBytes[i % passBytes.length];
+  }
+  return result;
+}
+
+// ──────────────────────────────────────────────
+// AES-256-GCM Encryption (dengan base64)
 // ──────────────────────────────────────────────
 
 async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
@@ -31,7 +45,6 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
     false,
     ['deriveKey']
   );
-
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
@@ -46,45 +59,30 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
   );
 }
 
-/**
- * Encrypts data using AES-256-GCM.
- * Output layout: [salt (16 bytes)][iv (12 bytes)][ciphertext + auth tag]
- */
 async function aesEncrypt(data: Uint8Array, password: string): Promise<Uint8Array> {
   const salt = crypto.getRandomValues(new Uint8Array(AES_SALT_LENGTH));
   const iv = crypto.getRandomValues(new Uint8Array(AES_IV_LENGTH));
   const key = await deriveKey(password, salt);
-
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     key,
     data
   );
-
-  // Combine: salt + iv + ciphertext
   const result = new Uint8Array(AES_SALT_LENGTH + AES_IV_LENGTH + ciphertext.byteLength);
   result.set(salt, 0);
   result.set(iv, AES_SALT_LENGTH);
   result.set(new Uint8Array(ciphertext), AES_SALT_LENGTH + AES_IV_LENGTH);
-
   return result;
 }
 
-/**
- * Decrypts data that was encrypted with aesEncrypt.
- * Expects layout: [salt (16 bytes)][iv (12 bytes)][ciphertext + auth tag]
- */
 async function aesDecrypt(data: Uint8Array, password: string): Promise<Uint8Array> {
   if (data.length < AES_SALT_LENGTH + AES_IV_LENGTH + 1) {
     throw new Error('Data terenkripsi terlalu pendek.');
   }
-
   const salt = data.slice(0, AES_SALT_LENGTH);
   const iv = data.slice(AES_SALT_LENGTH, AES_SALT_LENGTH + AES_IV_LENGTH);
   const ciphertext = data.slice(AES_SALT_LENGTH + AES_IV_LENGTH);
-
   const key = await deriveKey(password, salt);
-
   try {
     const plaintext = await crypto.subtle.decrypt(
       { name: 'AES-GCM', iv },
@@ -147,7 +145,7 @@ export function blobToText(blob: Blob): Promise<string> {
 }
 
 // ──────────────────────────────────────────────
-// Base64 Helpers
+// Base64 Helpers (hanya untuk AES)
 // ──────────────────────────────────────────────
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -171,77 +169,222 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 }
 
 // ──────────────────────────────────────────────
+// Raw binary serialization (untuk XOR — tanpa base64)
+// ──────────────────────────────────────────────
+
+/**
+ * XOR payload format (binary, no base64):
+ *
+ * [4 bytes: file count]
+ * For each file:
+ *   [2 bytes: name length][name bytes]
+ *   [2 bytes: type length][type bytes]
+ *   [2 bytes: comment length][comment bytes]
+ *   [4 bytes: data length][data bytes]
+ */
+function serializeFilesRaw(
+  filesData: Array<{
+    name: string;
+    type: string;
+    data: ArrayBuffer;
+    comment?: string;
+  }>
+): Uint8Array {
+  const encoder = new TextEncoder();
+  const parts: Uint8Array[] = [];
+
+  // File count (4 bytes)
+  const countBuf = new Uint8Array(4);
+  const countView = new DataView(countBuf.buffer);
+  countView.setUint32(0, filesData.length, false);
+  parts.push(countBuf);
+
+  for (const f of filesData) {
+    const nameBytes = encoder.encode(f.name);
+    const typeBytes = encoder.encode(f.type);
+    const commentBytes = encoder.encode(f.comment || '');
+    const dataBytes = new Uint8Array(f.data);
+
+    // Name: [2 bytes len][bytes]
+    const nameLenBuf = new Uint8Array(2);
+    new DataView(nameLenBuf.buffer).setUint16(0, nameBytes.length, false);
+    parts.push(nameLenBuf);
+    parts.push(nameBytes);
+
+    // Type: [2 bytes len][bytes]
+    const typeLenBuf = new Uint8Array(2);
+    new DataView(typeLenBuf.buffer).setUint16(0, typeBytes.length, false);
+    parts.push(typeLenBuf);
+    parts.push(typeBytes);
+
+    // Comment: [2 bytes len][bytes]
+    const commentLenBuf = new Uint8Array(2);
+    new DataView(commentLenBuf.buffer).setUint16(0, commentBytes.length, false);
+    parts.push(commentLenBuf);
+    parts.push(commentBytes);
+
+    // Data: [4 bytes len][bytes]
+    const dataLenBuf = new Uint8Array(4);
+    new DataView(dataLenBuf.buffer).setUint32(0, dataBytes.length, false);
+    parts.push(dataLenBuf);
+    parts.push(dataBytes);
+  }
+
+  // Combine all parts
+  const totalLength = parts.reduce((sum, p) => sum + p.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const p of parts) {
+    result.set(p, offset);
+    offset += p.length;
+  }
+  return result;
+}
+
+function deserializeFilesRaw(
+  data: Uint8Array
+): Array<{ name: string; type: string; data: ArrayBuffer; comment: string }> {
+  const decoder = new TextDecoder();
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  let offset = 0;
+
+  const fileCount = view.getUint32(offset, false);
+  offset += 4;
+
+  const files: Array<{ name: string; type: string; data: ArrayBuffer; comment: string }> = [];
+
+  for (let i = 0; i < fileCount; i++) {
+    // Name
+    const nameLen = view.getUint16(offset, false);
+    offset += 2;
+    const name = decoder.decode(data.subarray(offset, offset + nameLen));
+    offset += nameLen;
+
+    // Type
+    const typeLen = view.getUint16(offset, false);
+    offset += 2;
+    const type = decoder.decode(data.subarray(offset, offset + typeLen));
+    offset += typeLen;
+
+    // Comment
+    const commentLen = view.getUint16(offset, false);
+    offset += 2;
+    const comment = decoder.decode(data.subarray(offset, offset + commentLen));
+    offset += commentLen;
+
+    // Data
+    const dataLen = view.getUint32(offset, false);
+    offset += 4;
+    const fileData = data.slice(offset, offset + dataLen).buffer as ArrayBuffer;
+    offset += dataLen;
+
+    files.push({ name, type, data: fileData, comment });
+  }
+
+  return files;
+}
+
+// ──────────────────────────────────────────────
 // Steganography Core Functions
 // ──────────────────────────────────────────────
 
 /**
- * Flow: file → JSON payload → AES-256-GCM encrypt → append to cover
+ * Stego layout: [cover bytes][payload][4-byte payload size][1-byte method flag][4-byte STEG magic]
  *
- * Final layout: [cover bytes][encrypted payload][4-byte payload size][4-byte STEG magic]
- * Without password: [cover bytes][plain payload][4-byte payload size][4-byte STEG magic]
+ * Method flag: 0x00 = no encryption, 0x01 = XOR, 0x02 = AES
+ *
+ * XOR mode:  payload = XOR(raw binary serialized files, password)
+ * AES mode:  payload = AES-GCM(JSON with base64 encoded file data, password)
+ * No password: payload = JSON with base64 encoded file data (plain)
  */
 export async function embedFiles(
   coverFile: File,
   secretFiles: File[],
   password?: string,
-  comments?: Record<number, string>
+  comments?: Record<number, string>,
+  method?: EncryptionMethod
 ): Promise<{ blob: Blob; extension: string }> {
   const coverBuffer = await readFileAsArrayBuffer(coverFile);
 
-  const filesData: Array<{
-    name: string;
-    type: string;
-    size: number;
-    dataBase64: string;
-    comment?: string;
-  }> = [];
-
-  for (let i = 0; i < secretFiles.length; i++) {
-    const file = secretFiles[i];
-    const buffer = await readFileAsArrayBuffer(file);
-    filesData.push({
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      dataBase64: arrayBufferToBase64(buffer),
-      comment: comments?.[i] || undefined,
-    });
-  }
-
-  const payloadObj = {
-    files: filesData,
-    hasPassword: !!password,
-  };
-
-  const payloadJson = JSON.stringify(payloadObj);
-  const plainBytes = new TextEncoder().encode(payloadJson);
-
-  // Encrypt with AES if password provided, otherwise use plain bytes
   let payloadBytes: Uint8Array;
-  if (password) {
+  let methodFlag: number;
+
+  if (password && method === 'xor') {
+    // XOR mode: raw binary, no base64
+    const filesForRaw: Array<{
+      name: string;
+      type: string;
+      data: ArrayBuffer;
+      comment?: string;
+    }> = [];
+    for (let i = 0; i < secretFiles.length; i++) {
+      const file = secretFiles[i];
+      const buffer = await readFileAsArrayBuffer(file);
+      filesForRaw.push({
+        name: file.name,
+        type: file.type,
+        data: buffer,
+        comment: comments?.[i] || undefined,
+      });
+    }
+    const rawBytes = serializeFilesRaw(filesForRaw);
+    payloadBytes = xorEncrypt(rawBytes, password);
+    methodFlag = 0x01;
+  } else if (password && method === 'aes') {
+    // AES mode: JSON with base64
+    const filesData = [];
+    for (let i = 0; i < secretFiles.length; i++) {
+      const file = secretFiles[i];
+      const buffer = await readFileAsArrayBuffer(file);
+      filesData.push({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        dataBase64: arrayBufferToBase64(buffer),
+        comment: comments?.[i] || undefined,
+      });
+    }
+    const payloadJson = JSON.stringify({ files: filesData });
+    const plainBytes = new TextEncoder().encode(payloadJson);
     payloadBytes = await aesEncrypt(plainBytes, password);
+    methodFlag = 0x02;
   } else {
-    payloadBytes = new Uint8Array(plainBytes.buffer, plainBytes.byteOffset, plainBytes.byteLength);
+    // No password: JSON with base64, no encryption
+    const filesData = [];
+    for (let i = 0; i < secretFiles.length; i++) {
+      const file = secretFiles[i];
+      const buffer = await readFileAsArrayBuffer(file);
+      filesData.push({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        dataBase64: arrayBufferToBase64(buffer),
+        comment: comments?.[i] || undefined,
+      });
+    }
+    const payloadJson = JSON.stringify({ files: filesData });
+    payloadBytes = new TextEncoder().encode(payloadJson);
+    methodFlag = 0x00;
   }
 
   const payloadSize = payloadBytes.length;
-  // Layout: [cover][payload][4 bytes size][4 bytes magic]
-  const totalSize = coverBuffer.byteLength + payloadSize + 8;
+  // Layout: [cover][payload][4 bytes size][1 byte method][4 bytes magic]
+  const totalSize = coverBuffer.byteLength + payloadSize + 9;
   const combined = new Uint8Array(totalSize);
 
   combined.set(new Uint8Array(coverBuffer), 0);
   combined.set(payloadBytes, coverBuffer.byteLength);
 
-  const sizeOffset = coverBuffer.byteLength + payloadSize;
-  combined[sizeOffset] = (payloadSize >> 24) & 0xff;
-  combined[sizeOffset + 1] = (payloadSize >> 16) & 0xff;
-  combined[sizeOffset + 2] = (payloadSize >> 8) & 0xff;
-  combined[sizeOffset + 3] = payloadSize & 0xff;
-
-  combined[sizeOffset + 4] = MAGIC_BYTES[0];
-  combined[sizeOffset + 5] = MAGIC_BYTES[1];
-  combined[sizeOffset + 6] = MAGIC_BYTES[2];
-  combined[sizeOffset + 7] = MAGIC_BYTES[3];
+  const metaOffset = coverBuffer.byteLength + payloadSize;
+  combined[metaOffset] = (payloadSize >> 24) & 0xff;
+  combined[metaOffset + 1] = (payloadSize >> 16) & 0xff;
+  combined[metaOffset + 2] = (payloadSize >> 8) & 0xff;
+  combined[metaOffset + 3] = payloadSize & 0xff;
+  combined[metaOffset + 4] = methodFlag;
+  combined[metaOffset + 5] = MAGIC_BYTES[0];
+  combined[metaOffset + 6] = MAGIC_BYTES[1];
+  combined[metaOffset + 7] = MAGIC_BYTES[2];
+  combined[metaOffset + 8] = MAGIC_BYTES[3];
 
   const ext = coverFile.name.split('.').pop() || 'bin';
   const blob = new Blob([combined], { type: coverFile.type || 'application/octet-stream' });
@@ -249,11 +392,13 @@ export async function embedFiles(
   return { blob, extension: ext };
 }
 
-export function checkForHiddenData(buffer: ArrayBuffer): { found: boolean; hasPassword: boolean } {
+export function checkForHiddenData(
+  buffer: ArrayBuffer
+): { found: boolean; hasPassword: boolean; method: EncryptionMethod | null } {
   const uint8 = new Uint8Array(buffer);
 
-  if (uint8.length < 8) {
-    return { found: false, hasPassword: false };
+  if (uint8.length < 9) {
+    return { found: false, hasPassword: false, method: null };
   }
 
   const magicOffset = uint8.length - 4;
@@ -264,41 +409,40 @@ export function checkForHiddenData(buffer: ArrayBuffer): { found: boolean; hasPa
     uint8[magicOffset + 3] === MAGIC_BYTES[3];
 
   if (!hasMagic) {
-    return { found: false, hasPassword: false };
+    return { found: false, hasPassword: false, method: null };
   }
 
-  const sizeOffset = uint8.length - 8;
+  const methodFlag = uint8[uint8.length - 5];
+  const sizeOffset = uint8.length - 9;
   const payloadSize =
     (uint8[sizeOffset] << 24) |
     (uint8[sizeOffset + 1] << 16) |
     (uint8[sizeOffset + 2] << 8) |
     uint8[sizeOffset + 3];
 
-  if (payloadSize <= 0 || payloadSize > uint8.length - 8) {
-    return { found: false, hasPassword: false };
+  if (payloadSize <= 0 || payloadSize > uint8.length - 9) {
+    return { found: false, hasPassword: false, method: null };
   }
 
-  const payloadStart = uint8.length - 8 - payloadSize;
-  const payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize));
-
-  // Try parsing as plain JSON first (no password case)
-  try {
-    const text = new TextDecoder().decode(payloadBytes);
-    const obj = JSON.parse(text);
-    return { found: true, hasPassword: !!obj.hasPassword };
-  } catch {
-    // If JSON parse fails, it's likely AES-encrypted → needs password
-    return { found: true, hasPassword: true };
+  if (methodFlag === 0x01) {
+    return { found: true, hasPassword: true, method: 'xor' };
   }
+  if (methodFlag === 0x02) {
+    return { found: true, hasPassword: true, method: 'aes' };
+  }
+
+  // methodFlag === 0x00 — no password
+  return { found: true, hasPassword: false, method: null };
 }
 
-/**
- * Flow: read payload from stego → AES-256-GCM decrypt → parse JSON → return files
- */
-export async function extractFiles(buffer: ArrayBuffer, password?: string): Promise<HiddenFile[]> {
+export async function extractFiles(
+  buffer: ArrayBuffer,
+  password?: string,
+  method?: EncryptionMethod | null
+): Promise<HiddenFile[]> {
   const uint8 = new Uint8Array(buffer);
 
-  if (uint8.length < 8) {
+  if (uint8.length < 9) {
     throw new Error('File terlalu kecil untuk berisi data tersembunyi.');
   }
 
@@ -313,52 +457,93 @@ export async function extractFiles(buffer: ArrayBuffer, password?: string): Prom
     throw new Error('Tidak ditemukan data tersembunyi dalam file ini.');
   }
 
-  const sizeOffset = uint8.length - 8;
+  const methodFlag = uint8[uint8.length - 5];
+  const sizeOffset = uint8.length - 9;
   const payloadSize =
     (uint8[sizeOffset] << 24) |
     (uint8[sizeOffset + 1] << 16) |
     (uint8[sizeOffset + 2] << 8) |
     uint8[sizeOffset + 3];
 
-  if (payloadSize <= 0 || payloadSize > uint8.length - 8) {
+  if (payloadSize <= 0 || payloadSize > uint8.length - 9) {
     throw new Error('Data tersembunyi rusak atau ukuran tidak valid.');
   }
 
-  const payloadStart = uint8.length - 8 - payloadSize;
+  const payloadStart = uint8.length - 9 - payloadSize;
   const payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize));
 
-  // Decrypt with AES if password provided, otherwise use raw bytes
-  let plainBytes: Uint8Array;
-  if (password) {
-    plainBytes = await aesDecrypt(payloadBytes, password);
-  } else {
-    plainBytes = payloadBytes;
+  // XOR mode: raw binary
+  if (methodFlag === 0x01) {
+    if (!password) throw new Error('File ini memerlukan password (XOR).');
+    const decrypted = xorEncrypt(payloadBytes, password);
+    try {
+      const files = deserializeFilesRaw(decrypted);
+      return files.map((f) => ({
+        id: generateId(),
+        name: f.name,
+        size: f.data.byteLength,
+        type: f.type,
+        data: f.data,
+        comment: f.comment || '',
+      }));
+    } catch {
+      throw new Error('Gagal membaca data tersembunyi. Password mungkin salah atau file rusak.');
+    }
   }
 
+  // AES mode: JSON with base64
+  if (methodFlag === 0x02) {
+    if (!password) throw new Error('File ini memerlukan password (AES).');
+    const decrypted = await aesDecrypt(payloadBytes, password);
+    let payloadJson: string;
+    try {
+      payloadJson = new TextDecoder().decode(decrypted);
+    } catch {
+      throw new Error('Gagal mendekode data. Password mungkin salah.');
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let payloadObj: any;
+    try {
+      payloadObj = JSON.parse(payloadJson);
+    } catch {
+      throw new Error('Gagal membaca data tersembunyi. Password mungkin salah atau file rusak.');
+    }
+    if (!payloadObj.files || !Array.isArray(payloadObj.files)) {
+      throw new Error('Format data tidak valid.');
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return payloadObj.files.map((f: any) => ({
+      id: generateId(),
+      name: f.name,
+      size: f.size || 0,
+      type: f.type,
+      data: base64ToArrayBuffer(f.dataBase64),
+      comment: f.comment || '',
+    }));
+  }
+
+  // No encryption (methodFlag === 0x00): JSON with base64, plain
   let payloadJson: string;
   try {
-    payloadJson = new TextDecoder().decode(plainBytes);
+    payloadJson = new TextDecoder().decode(payloadBytes);
   } catch {
-    throw new Error('Gagal mendekode data. Password mungkin salah.');
+    throw new Error('Gagal mendekode data.');
   }
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let payloadObj: any;
   try {
     payloadObj = JSON.parse(payloadJson);
   } catch {
-    throw new Error('Gagal membaca data tersembunyi. Password mungkin salah atau file rusak.');
+    throw new Error('Gagal membaca data tersembunyi.');
   }
-
   if (!payloadObj.files || !Array.isArray(payloadObj.files)) {
-    throw new Error('Format data tidak valid. Password mungkin salah.');
+    throw new Error('Format data tidak valid.');
   }
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return payloadObj.files.map((f: any) => ({
     id: generateId(),
     name: f.name,
-    size: f.size,
+    size: f.size || 0,
     type: f.type,
     data: base64ToArrayBuffer(f.dataBase64),
     comment: f.comment || '',
@@ -368,61 +553,76 @@ export async function extractFiles(buffer: ArrayBuffer, password?: string): Prom
 export async function reEmbedFiles(
   stegoBuffer: ArrayBuffer,
   files: HiddenFile[],
-  password?: string
+  password?: string,
+  method?: EncryptionMethod
 ): Promise<Blob> {
   const uint8 = new Uint8Array(stegoBuffer);
 
-  const sizeOffset = uint8.length - 8;
+  const sizeOffset = uint8.length - 9;
   const payloadSize =
     (uint8[sizeOffset] << 24) |
     (uint8[sizeOffset + 1] << 16) |
     (uint8[sizeOffset + 2] << 8) |
     uint8[sizeOffset + 3];
 
-  const coverEnd = uint8.length - 8 - payloadSize;
+  const coverEnd = uint8.length - 9 - payloadSize;
   const coverBytes = new Uint8Array(stegoBuffer.slice(0, coverEnd));
 
-  const filesData = files.map((f) => ({
-    name: f.name,
-    type: f.type,
-    size: f.size,
-    dataBase64: arrayBufferToBase64(f.data),
-    comment: f.comment || undefined,
-  }));
-
-  const payloadObj = {
-    files: filesData,
-    hasPassword: !!password,
-  };
-
-  const payloadJson = JSON.stringify(payloadObj);
-  const plainBytes = new TextEncoder().encode(payloadJson);
-
-  // Encrypt with AES if password provided
   let payloadBytes: Uint8Array;
-  if (password) {
+  let methodFlag: number;
+
+  if (password && method === 'xor') {
+    const filesForRaw = files.map((f) => ({
+      name: f.name,
+      type: f.type,
+      data: f.data,
+      comment: f.comment || undefined,
+    }));
+    const rawBytes = serializeFilesRaw(filesForRaw);
+    payloadBytes = xorEncrypt(rawBytes, password);
+    methodFlag = 0x01;
+  } else if (password && method === 'aes') {
+    const filesData = files.map((f) => ({
+      name: f.name,
+      type: f.type,
+      size: f.size,
+      dataBase64: arrayBufferToBase64(f.data),
+      comment: f.comment || undefined,
+    }));
+    const payloadJson = JSON.stringify({ files: filesData });
+    const plainBytes = new TextEncoder().encode(payloadJson);
     payloadBytes = await aesEncrypt(plainBytes, password);
+    methodFlag = 0x02;
   } else {
-    payloadBytes = new Uint8Array(plainBytes.buffer, plainBytes.byteOffset, plainBytes.byteLength);
+    const filesData = files.map((f) => ({
+      name: f.name,
+      type: f.type,
+      size: f.size,
+      dataBase64: arrayBufferToBase64(f.data),
+      comment: f.comment || undefined,
+    }));
+    const payloadJson = JSON.stringify({ files: filesData });
+    payloadBytes = new TextEncoder().encode(payloadJson);
+    methodFlag = 0x00;
   }
 
   const newPayloadSize = payloadBytes.length;
-  const totalSize = coverBytes.length + newPayloadSize + 8;
+  const totalSize = coverBytes.length + newPayloadSize + 9;
   const combined = new Uint8Array(totalSize);
 
   combined.set(coverBytes, 0);
   combined.set(payloadBytes, coverBytes.length);
 
-  const newSizeOffset = coverBytes.length + newPayloadSize;
-  combined[newSizeOffset] = (newPayloadSize >> 24) & 0xff;
-  combined[newSizeOffset + 1] = (newPayloadSize >> 16) & 0xff;
-  combined[newSizeOffset + 2] = (newPayloadSize >> 8) & 0xff;
-  combined[newSizeOffset + 3] = newPayloadSize & 0xff;
-
-  combined[newSizeOffset + 4] = MAGIC_BYTES[0];
-  combined[newSizeOffset + 5] = MAGIC_BYTES[1];
-  combined[newSizeOffset + 6] = MAGIC_BYTES[2];
-  combined[newSizeOffset + 7] = MAGIC_BYTES[3];
+  const metaOffset = coverBytes.length + newPayloadSize;
+  combined[metaOffset] = (newPayloadSize >> 24) & 0xff;
+  combined[metaOffset + 1] = (newPayloadSize >> 16) & 0xff;
+  combined[metaOffset + 2] = (newPayloadSize >> 8) & 0xff;
+  combined[metaOffset + 3] = newPayloadSize & 0xff;
+  combined[metaOffset + 4] = methodFlag;
+  combined[metaOffset + 5] = MAGIC_BYTES[0];
+  combined[metaOffset + 6] = MAGIC_BYTES[1];
+  combined[metaOffset + 7] = MAGIC_BYTES[2];
+  combined[metaOffset + 8] = MAGIC_BYTES[3];
 
   return new Blob([combined], { type: 'application/octet-stream' });
 }
@@ -439,7 +639,10 @@ export function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-export function getFileCategory(type: string, name: string): 'image' | 'video' | 'audio' | 'text' | 'other' {
+export function getFileCategory(
+  type: string,
+  name: string
+): 'image' | 'video' | 'audio' | 'text' | 'other' {
   if (type.startsWith('image/')) return 'image';
   if (type.startsWith('video/')) return 'video';
   if (type.startsWith('audio/')) return 'audio';
