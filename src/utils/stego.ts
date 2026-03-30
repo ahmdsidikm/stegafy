@@ -16,13 +16,12 @@ function generateId(): string {
   return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 }
 
-// ─── AES-256-GCM helpers ────────────────────────────────────────────
+// ─── AES-256-GCM ────────────────────────────────────────────────────
 
 async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
-  const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(password),
+    new TextEncoder().encode(password),
     'PBKDF2',
     false,
     ['deriveKey']
@@ -43,13 +42,9 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
 }
 
 /**
- * Encrypt plaintext bytes with AES-256-GCM.
- * Output layout: [salt (16 B)][iv (12 B)][ciphertext + auth-tag]
+ * Output: [salt 16B][iv 12B][ciphertext+tag]
  */
-async function aesEncrypt(
-  data: Uint8Array,
-  password: string
-): Promise<Uint8Array<ArrayBuffer>> {
+async function aesEncrypt(data: Uint8Array, password: string): Promise<Uint8Array> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
   const key = await deriveKey(password, salt);
@@ -61,7 +56,7 @@ async function aesEncrypt(
   );
 
   const cipher = new Uint8Array(cipherBuffer);
-  const result = new Uint8Array(SALT_LENGTH + IV_LENGTH + cipher.length) as Uint8Array<ArrayBuffer>;
+  const result = new Uint8Array(SALT_LENGTH + IV_LENGTH + cipher.length);
   result.set(salt, 0);
   result.set(iv, SALT_LENGTH);
   result.set(cipher, SALT_LENGTH + IV_LENGTH);
@@ -69,13 +64,7 @@ async function aesEncrypt(
   return result;
 }
 
-/**
- * Decrypt a blob that was produced by `aesEncrypt`.
- */
-async function aesDecrypt(
-  data: Uint8Array,
-  password: string
-): Promise<Uint8Array<ArrayBuffer>> {
+async function aesDecrypt(data: Uint8Array, password: string): Promise<Uint8Array> {
   if (data.length < SALT_LENGTH + IV_LENGTH + 1) {
     throw new Error('Data terenkripsi terlalu pendek.');
   }
@@ -92,7 +81,7 @@ async function aesDecrypt(
       key,
       ciphertext
     );
-    return new Uint8Array(plainBuffer) as Uint8Array<ArrayBuffer>;
+    return new Uint8Array(plainBuffer);
   } catch {
     throw new Error('Gagal mendekripsi. Password salah atau data rusak.');
   }
@@ -169,15 +158,6 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 
 // ─── Core steganography ─────────────────────────────────────────────
 
-/**
- * Flow:  secret files → JSON → AES-256-GCM encrypt → append to cover
- *
- * Layout of output:
- *   [cover bytes][payload bytes][4-byte payload size][4-byte MAGIC]
- *
- * If no password the payload is plain JSON (unencrypted).
- * If password is given the payload is AES-encrypted blob.
- */
 export async function embedFiles(
   coverFile: File,
   secretFiles: File[],
@@ -214,23 +194,14 @@ export async function embedFiles(
   const payloadJson = JSON.stringify(payloadObj);
   const plainBytes = new TextEncoder().encode(payloadJson);
 
-  // ── Encrypt or keep plain ──
-  let payloadBytes: Uint8Array<ArrayBuffer>;
+  let payloadBytes: Uint8Array;
   if (password) {
-    payloadBytes = await aesEncrypt(
-      new Uint8Array(plainBytes.buffer as ArrayBuffer, plainBytes.byteOffset, plainBytes.byteLength),
-      password
-    );
+    payloadBytes = await aesEncrypt(plainBytes, password);
   } else {
-    payloadBytes = new Uint8Array(
-      plainBytes.buffer as ArrayBuffer,
-      plainBytes.byteOffset,
-      plainBytes.byteLength
-    );
+    payloadBytes = plainBytes;
   }
 
   const payloadSize = payloadBytes.length;
-  // Layout: [cover][payload][4 bytes size][4 bytes magic]
   const totalSize = coverBuffer.byteLength + payloadSize + 8;
   const combined = new Uint8Array(totalSize);
 
@@ -286,21 +257,15 @@ export function checkForHiddenData(buffer: ArrayBuffer): { found: boolean; hasPa
   const payloadStart = uint8.length - 8 - payloadSize;
   const payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize));
 
-  // Try to parse as plain JSON (no password case)
   try {
     const text = new TextDecoder().decode(payloadBytes);
     const obj = JSON.parse(text);
     return { found: true, hasPassword: !!obj.hasPassword };
   } catch {
-    // If we can't parse as JSON it's either encrypted or corrupted.
-    // Since we found the magic bytes, assume it's encrypted.
     return { found: true, hasPassword: true };
   }
 }
 
-/**
- * Flow:  stego file → extract payload → AES-256-GCM decrypt → JSON → files
- */
 export async function extractFiles(buffer: ArrayBuffer, password?: string): Promise<HiddenFile[]> {
   const uint8 = new Uint8Array(buffer);
 
@@ -331,14 +296,19 @@ export async function extractFiles(buffer: ArrayBuffer, password?: string): Prom
   }
 
   const payloadStart = uint8.length - 8 - payloadSize;
-  const payloadBytes = new Uint8Array(
-    buffer.slice(payloadStart, payloadStart + payloadSize)
-  ) as Uint8Array<ArrayBuffer>;
+  const payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize));
 
-  // ── Decrypt or read plain ──
-  let jsonBytes: Uint8Array<ArrayBuffer>;
+  let jsonBytes: Uint8Array;
   if (password) {
-    jsonBytes = await aesDecrypt(payloadBytes, password);
+    try {
+      jsonBytes = await aesDecrypt(payloadBytes, password);
+    } catch (err) {
+      throw new Error(
+        err instanceof Error
+          ? err.message
+          : 'Gagal mendekripsi. Password salah atau data rusak.'
+      );
+    }
   } else {
     jsonBytes = payloadBytes;
   }
@@ -406,19 +376,11 @@ export async function reEmbedFiles(
   const payloadJson = JSON.stringify(payloadObj);
   const plainBytes = new TextEncoder().encode(payloadJson);
 
-  // ── Encrypt or keep plain ──
-  let payloadBytes: Uint8Array<ArrayBuffer>;
+  let payloadBytes: Uint8Array;
   if (password) {
-    payloadBytes = await aesEncrypt(
-      new Uint8Array(plainBytes.buffer as ArrayBuffer, plainBytes.byteOffset, plainBytes.byteLength),
-      password
-    );
+    payloadBytes = await aesEncrypt(plainBytes, password);
   } else {
-    payloadBytes = new Uint8Array(
-      plainBytes.buffer as ArrayBuffer,
-      plainBytes.byteOffset,
-      plainBytes.byteLength
-    );
+    payloadBytes = plainBytes;
   }
 
   const newPayloadSize = payloadBytes.length;
