@@ -664,7 +664,7 @@ export function App() {
         </div>
         <p className={`text-sm font-bold mb-0.5 ${value === 'xor' && !disabled ? 'text-amber-700' : 'text-slate-600'}`}>XOR</p>
         <p className={`text-[10px] leading-snug ${value === 'xor' && !disabled ? 'text-amber-600/80' : 'text-slate-400'}`}>
-          Cepat & ringan. Format biner tanpa base64.
+          Cepat & ringan. Ukuran file lebih kecil.
         </p>
       </button>
 
@@ -694,7 +694,7 @@ export function App() {
         </div>
         <p className={`text-sm font-bold mb-0.5 ${value === 'aes' && !disabled ? 'text-emerald-700' : 'text-slate-600'}`}>AES-256</p>
         <p className={`text-[10px] leading-snug ${value === 'aes' && !disabled ? 'text-emerald-600/80' : 'text-slate-400'}`}>
-          Standar industri. Base64 + AES-GCM + PBKDF2.
+          Standar industri. Lebih aman.
         </p>
       </button>
     </div>
