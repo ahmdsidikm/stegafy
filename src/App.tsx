@@ -46,6 +46,8 @@ interface ImageLightbox {
   alt: string;
 }
 
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function getFileIconEl(type: string, name: string) {
   const cat = getFileCategory(type, name);
   switch (cat) {
@@ -334,7 +336,15 @@ export function App() {
       });
 
       const methodToUse = embedPassword ? embedMethod : undefined;
+      const isAes = embedPassword && embedMethod === 'aes';
+
       const { blob, extension } = await embedFiles(coverFile, renamedFiles, embedPassword || undefined, embedComments, methodToUse);
+
+      // Add 3-second delay for AES encryption
+      if (isAes) {
+        await delay(3000);
+      }
+
       const url = URL.createObjectURL(blob);
       setStegoResult({ url, extension });
       const defaultName = `stego_file.${extension}`;
@@ -414,7 +424,15 @@ export function App() {
     if (!stegoBuffer) return showToast('Pilih file stego terlebih dahulu!', 'error');
     setDecrypting(true);
     try {
+      const isAes = detectedMethod === 'aes';
+
       const files = await extractFiles(stegoBuffer, decryptPassword || undefined, detectedMethod);
+
+      // Add 3-second delay for AES decryption
+      if (isAes) {
+        await delay(3000);
+      }
+
       setDecryptedFiles(files);
       setModified(false);
       setOpenedDecryptPreviews(new Set());
@@ -494,7 +512,15 @@ export function App() {
     setUpdating(true);
     try {
       const passwordToUse = passwordChanged ? newPassword : originalDecryptPassword;
+      const isAes = passwordToUse && decryptMethod === 'aes';
+
       const newBlob = await reEmbedFiles(stegoBuffer, decryptedFiles, passwordToUse || undefined, passwordToUse ? decryptMethod : undefined);
+
+      // Add 3-second delay for AES re-embedding
+      if (isAes) {
+        await delay(3000);
+      }
+
       const newBuffer = await newBlob.arrayBuffer();
       setStegoBuffer(newBuffer);
       const url = URL.createObjectURL(newBlob);
@@ -970,7 +996,16 @@ export function App() {
                   disabled={embedding || !coverFile || secretFiles.length === 0}
                   className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3.5 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-orange-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
                 >
-                  {embedding ? <><Loader2 className="w-4 h-4 animate-spin" />Menyembunyikan...</> : <><LockKeyhole className="w-4 h-4" />Sembunyikan File</>}
+                  {embedding ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {embedPassword && embedMethod === 'aes'
+                        ? 'Mengenkripsi dengan AES-256...'
+                        : 'Menyembunyikan...'}
+                    </>
+                  ) : (
+                    <><LockKeyhole className="w-4 h-4" />Sembunyikan File</>
+                  )}
                 </button>
               </div>
 
@@ -1149,7 +1184,16 @@ export function App() {
                     disabled={decrypting || (needsPassword && !decryptPassword)}
                     className="w-full bg-gradient-to-r from-violet-500 to-purple-500 text-white py-3.5 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-violet-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
                   >
-                    {decrypting ? <><Loader2 className="w-4 h-4 animate-spin" />Mendekripsi...</> : <><Unlock className="w-4 h-4" />Dekripsi</>}
+                    {decrypting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {detectedMethod === 'aes'
+                          ? 'Mendekripsi AES-256...'
+                          : 'Mendekripsi...'}
+                      </>
+                    ) : (
+                      <><Unlock className="w-4 h-4" />Dekripsi</>
+                    )}
                   </button>
                 )}
 
@@ -1210,7 +1254,16 @@ export function App() {
                         disabled={updating}
                         className="mt-4 w-full bg-gradient-to-r from-amber-500 to-orange-500 text-white py-3 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-amber-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer animate-fadeIn"
                       >
-                        {updating ? <><Loader2 className="w-4 h-4 animate-spin" />Memperbarui...</> : <><RefreshCw className="w-4 h-4" />Perbarui & Unduh Cover</>}
+                        {updating ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            {newPassword && decryptMethod === 'aes'
+                              ? 'Mengenkripsi ulang dengan AES-256...'
+                              : 'Memperbarui...'}
+                          </>
+                        ) : (
+                          <><RefreshCw className="w-4 h-4" />Perbarui & Unduh Cover</>
+                        )}
                       </button>
                     )}
                   </section>
