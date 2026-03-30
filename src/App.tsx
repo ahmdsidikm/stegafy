@@ -662,7 +662,7 @@ export function App() {
         }`}>
           <Zap className="w-4 h-4" />
         </div>
-        <p className={`text-sm font-bold mb-0.5 ${value === 'xor' && !disabled ? 'text-amber-700' : 'text-slate-600'}`}>XOR</p>
+        <p className={`text-sm font-bold mb-0.5 ${value === 'xor' && !disabled ? 'text-amber-700' : 'text-slate-600'}`}>Mode Srandar</p>
         <p className={`text-[10px] leading-snug ${value === 'xor' && !disabled ? 'text-amber-600/80' : 'text-slate-400'}`}>
           Cepat & ringan. Ukuran file lebih kecil.
         </p>
@@ -692,7 +692,7 @@ export function App() {
         }`}>
           <ShieldCheck className="w-4 h-4" />
         </div>
-        <p className={`text-sm font-bold mb-0.5 ${value === 'aes' && !disabled ? 'text-emerald-700' : 'text-slate-600'}`}>AES-256</p>
+        <p className={`text-sm font-bold mb-0.5 ${value === 'aes' && !disabled ? 'text-emerald-700' : 'text-slate-600'}`}>Mode Pro</p>
         <p className={`text-[10px] leading-snug ${value === 'aes' && !disabled ? 'text-emerald-600/80' : 'text-slate-400'}`}>
           Standar industri. Lebih aman.
         </p>
