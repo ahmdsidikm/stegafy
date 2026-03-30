@@ -8,86 +8,20 @@ export interface HiddenFile {
 }
 
 const MAGIC_BYTES = [0x53, 0x54, 0x45, 0x47]; // "STEG"
-const SALT_LENGTH = 16;
-const IV_LENGTH = 12;
-const PBKDF2_ITERATIONS = 100_000;
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 }
 
-// ─── AES-256-GCM ────────────────────────────────────────────────────
-
-async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(password),
-    'PBKDF2',
-    false,
-    ['deriveKey']
-  );
-
-  return crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt,
-      iterations: PBKDF2_ITERATIONS,
-      hash: 'SHA-256',
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  );
-}
-
-/**
- * Output: [salt 16B][iv 12B][ciphertext+tag]
- */
-async function aesEncrypt(data: Uint8Array, password: string): Promise<Uint8Array> {
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
-  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-  const key = await deriveKey(password, salt);
-
-  const cipherBuffer = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    data
-  );
-
-  const cipher = new Uint8Array(cipherBuffer);
-  const result = new Uint8Array(SALT_LENGTH + IV_LENGTH + cipher.length);
-  result.set(salt, 0);
-  result.set(iv, SALT_LENGTH);
-  result.set(cipher, SALT_LENGTH + IV_LENGTH);
-
+function xorEncrypt(data: Uint8Array<ArrayBuffer>, password: string): Uint8Array<ArrayBuffer> {
+  if (!password) return data;
+  const result = new Uint8Array(data.length) as Uint8Array<ArrayBuffer>;
+  const passBytes = new TextEncoder().encode(password);
+  for (let i = 0; i < data.length; i++) {
+    result[i] = data[i] ^ passBytes[i % passBytes.length];
+  }
   return result;
 }
-
-async function aesDecrypt(data: Uint8Array, password: string): Promise<Uint8Array> {
-  if (data.length < SALT_LENGTH + IV_LENGTH + 1) {
-    throw new Error('Data terenkripsi terlalu pendek.');
-  }
-
-  const salt = data.slice(0, SALT_LENGTH);
-  const iv = data.slice(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
-  const ciphertext = data.slice(SALT_LENGTH + IV_LENGTH);
-
-  const key = await deriveKey(password, salt);
-
-  try {
-    const plainBuffer = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv },
-      key,
-      ciphertext
-    );
-    return new Uint8Array(plainBuffer);
-  } catch {
-    throw new Error('Gagal mendekripsi. Password salah atau data rusak.');
-  }
-}
-
-// ─── File reader helpers ────────────────────────────────────────────
 
 export function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
@@ -134,8 +68,6 @@ export function blobToText(blob: Blob): Promise<string> {
   });
 }
 
-// ─── Base64 helpers ─────────────────────────────────────────────────
-
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
@@ -155,8 +87,6 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   }
   return bytes.buffer as ArrayBuffer;
 }
-
-// ─── Core steganography ─────────────────────────────────────────────
 
 export async function embedFiles(
   coverFile: File,
@@ -192,16 +122,15 @@ export async function embedFiles(
   };
 
   const payloadJson = JSON.stringify(payloadObj);
-  const plainBytes = new TextEncoder().encode(payloadJson);
+  const encoded = new TextEncoder().encode(payloadJson);
+  let payloadBytes = new Uint8Array(encoded.buffer as ArrayBuffer, encoded.byteOffset, encoded.byteLength);
 
-  let payloadBytes: Uint8Array;
   if (password) {
-    payloadBytes = await aesEncrypt(plainBytes, password);
-  } else {
-    payloadBytes = plainBytes;
+    payloadBytes = xorEncrypt(payloadBytes, password);
   }
 
   const payloadSize = payloadBytes.length;
+  // Layout: [cover][payload][4 bytes size][4 bytes magic]
   const totalSize = coverBuffer.byteLength + payloadSize + 8;
   const combined = new Uint8Array(totalSize);
 
@@ -266,7 +195,7 @@ export function checkForHiddenData(buffer: ArrayBuffer): { found: boolean; hasPa
   }
 }
 
-export async function extractFiles(buffer: ArrayBuffer, password?: string): Promise<HiddenFile[]> {
+export function extractFiles(buffer: ArrayBuffer, password?: string): HiddenFile[] {
   const uint8 = new Uint8Array(buffer);
 
   if (uint8.length < 8) {
@@ -296,26 +225,15 @@ export async function extractFiles(buffer: ArrayBuffer, password?: string): Prom
   }
 
   const payloadStart = uint8.length - 8 - payloadSize;
-  const payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize));
+  let payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize)) as Uint8Array<ArrayBuffer>;
 
-  let jsonBytes: Uint8Array;
   if (password) {
-    try {
-      jsonBytes = await aesDecrypt(payloadBytes, password);
-    } catch (err) {
-      throw new Error(
-        err instanceof Error
-          ? err.message
-          : 'Gagal mendekripsi. Password salah atau data rusak.'
-      );
-    }
-  } else {
-    jsonBytes = payloadBytes;
+    payloadBytes = xorEncrypt(payloadBytes, password);
   }
 
   let payloadJson: string;
   try {
-    payloadJson = new TextDecoder().decode(jsonBytes);
+    payloadJson = new TextDecoder().decode(payloadBytes);
   } catch {
     throw new Error('Gagal mendekode data. Password mungkin salah.');
   }
@@ -374,13 +292,11 @@ export async function reEmbedFiles(
   };
 
   const payloadJson = JSON.stringify(payloadObj);
-  const plainBytes = new TextEncoder().encode(payloadJson);
+  const reEncoded = new TextEncoder().encode(payloadJson);
+  let payloadBytes = new Uint8Array(reEncoded.buffer as ArrayBuffer, reEncoded.byteOffset, reEncoded.byteLength);
 
-  let payloadBytes: Uint8Array;
   if (password) {
-    payloadBytes = await aesEncrypt(plainBytes, password);
-  } else {
-    payloadBytes = plainBytes;
+    payloadBytes = xorEncrypt(payloadBytes, password);
   }
 
   const newPayloadSize = payloadBytes.length;
@@ -403,8 +319,6 @@ export async function reEmbedFiles(
 
   return new Blob([combined], { type: 'application/octet-stream' });
 }
-
-// ─── Utility ────────────────────────────────────────────────────────
 
 export function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
