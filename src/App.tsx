@@ -8,13 +8,13 @@ import {
   Shield, Info, DownloadCloud, AlertTriangle,
   EyeOff, LockKeyhole, MessageSquare, MessageSquarePlus,
   Maximize2, Edit3, Check, KeyRound, Search,
-  LayoutGrid,
+  LayoutGrid, Zap, ShieldCheck,
 } from 'lucide-react';
 import {
   embedFiles, extractFiles, checkForHiddenData, reEmbedFiles,
   readFileAsArrayBuffer, readFileAsDataURL, readFileAsText,
   blobToDataURL, blobToText, formatFileSize, getFileCategory,
-  type HiddenFile,
+  type HiddenFile, type EncryptionMethod,
 } from './utils/stego';
 
 type Tab = 'embed' | 'decrypt';
@@ -90,6 +90,7 @@ export function App() {
   const [secretPreviews, setSecretPreviews] = useState<FilePreview[]>([]);
   const [embedPassword, setEmbedPassword] = useState('');
   const [showEmbedPassword, setShowEmbedPassword] = useState(false);
+  const [embedMethod, setEmbedMethod] = useState<EncryptionMethod>('aes');
   const [embedding, setEmbedding] = useState(false);
   const [stegoResult, setStegoResult] = useState<{ url: string; extension: string } | null>(null);
   const [stegoPreview, setStegoPreview] = useState<FilePreview | null>(null);
@@ -107,6 +108,7 @@ export function App() {
   const [decryptPassword, setDecryptPassword] = useState('');
   const [showDecryptPassword, setShowDecryptPassword] = useState(false);
   const [needsPassword, setNeedsPassword] = useState(false);
+  const [detectedMethod, setDetectedMethod] = useState<EncryptionMethod | null>(null);
   const [decrypting, setDecrypting] = useState(false);
   const [decryptedFiles, setDecryptedFiles] = useState<HiddenFile[]>([]);
   const [stegoBuffer, setStegoBuffer] = useState<ArrayBuffer | null>(null);
@@ -118,14 +120,13 @@ export function App() {
   const [stegoDetected, setStegoDetected] = useState(false);
   const [editingComments, setEditingComments] = useState<Set<string>>(new Set());
   const [decryptionDone, setDecryptionDone] = useState(false);
-  const [showDecryptSuccess, setShowDecryptSuccess] = useState(false);
   const [editingFileNames, setEditingFileNames] = useState<Set<string>>(new Set());
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [passwordChanged, setPasswordChanged] = useState(false);
-  const [updatingPassword, setUpdatingPassword] = useState(false);
   const [originalDecryptPassword, setOriginalDecryptPassword] = useState('');
   const [allDecryptPreviewsOpen, setAllDecryptPreviewsOpen] = useState(false);
+  const [decryptMethod, setDecryptMethod] = useState<EncryptionMethod>('aes');
 
   // Filter & Search state
   const [filterCategory, setFilterCategory] = useState<FilterCategory>('all');
@@ -142,10 +143,8 @@ export function App() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
   }, []);
 
-  // Derived: has any changes (password or files modified)
   const hasAnyChanges = modified || passwordChanged;
 
-  // Filter and search decrypted files
   const categoryCounts = useMemo(() => {
     const counts: Record<FilterCategory, number> = {
       all: decryptedFiles.length,
@@ -169,13 +168,6 @@ export function App() {
     }
     return files;
   }, [decryptedFiles, filterCategory, searchQuery]);
-
-  useEffect(() => {
-    if (showDecryptSuccess) {
-      const timer = setTimeout(() => setShowDecryptSuccess(false), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [showDecryptSuccess]);
 
   async function buildFilePreview(file: File): Promise<FilePreview> {
     const preview: FilePreview = { name: file.name, size: file.size, type: file.type };
@@ -369,7 +361,8 @@ export function App() {
         return file;
       });
 
-      const { blob, extension } = await embedFiles(coverFile, renamedFiles, embedPassword || undefined, embedComments);
+      const methodToUse = embedPassword ? embedMethod : undefined;
+      const { blob, extension } = await embedFiles(coverFile, renamedFiles, embedPassword || undefined, embedComments, methodToUse);
       const url = URL.createObjectURL(blob);
       setStegoResult({ url, extension });
       const defaultName = `stego_file.${extension}`;
@@ -398,6 +391,7 @@ export function App() {
     setDecryptedFiles([]);
     setModified(false);
     setNeedsPassword(false);
+    setDetectedMethod(null);
     setDecryptPassword('');
     setShowDecryptPassword(false);
     setFilePreviews({});
@@ -405,7 +399,6 @@ export function App() {
     setEditingComments(new Set());
     setStegoDetected(false);
     setDecryptionDone(false);
-    setShowDecryptSuccess(false);
     setEditingFileNames(new Set());
     setNewPassword('');
     setShowNewPassword(false);
@@ -414,6 +407,7 @@ export function App() {
     setAllDecryptPreviewsOpen(false);
     setFilterCategory('all');
     setSearchQuery('');
+    setDecryptMethod('aes');
 
     const preview = await buildFilePreview(file);
     setStegoFilePreview(preview);
@@ -429,7 +423,16 @@ export function App() {
       }
       setStegoDetected(true);
       setNeedsPassword(check.hasPassword);
-      showToast(check.hasPassword ? 'File memerlukan password untuk dekripsi.' : 'Data tersembunyi terdeteksi! Klik Dekripsi.', 'info');
+      setDetectedMethod(check.method);
+      if (check.method) {
+        setDecryptMethod(check.method);
+      }
+      if (check.hasPassword) {
+        const methodLabel = check.method === 'xor' ? 'XOR' : 'AES-256';
+        showToast(`File memerlukan password (${methodLabel}) untuk dekripsi.`, 'info');
+      } else {
+        showToast('Data tersembunyi terdeteksi! Klik Dekripsi.', 'info');
+      }
     } catch (err) {
       showToast(`Error: ${(err as Error).message}`, 'error');
     }
@@ -439,20 +442,22 @@ export function App() {
     if (!stegoBuffer) return showToast('Pilih file stego terlebih dahulu!', 'error');
     setDecrypting(true);
     try {
-const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
+      const files = await extractFiles(stegoBuffer, decryptPassword || undefined, detectedMethod);
       setDecryptedFiles(files);
       setModified(false);
       setOpenedDecryptPreviews(new Set());
       setEditingComments(new Set());
       setEditingFileNames(new Set());
       setDecryptionDone(true);
-      setShowDecryptSuccess(true);
       setOriginalDecryptPassword(decryptPassword);
       setNewPassword(decryptPassword);
       setPasswordChanged(false);
       setAllDecryptPreviewsOpen(false);
       setFilterCategory('all');
       setSearchQuery('');
+      if (detectedMethod) {
+        setDecryptMethod(detectedMethod);
+      }
       showToast(`Berhasil mendekripsi ${files.length} file!`, 'success');
 
       const previews: Record<string, string> = {};
@@ -531,7 +536,7 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
     setUpdating(true);
     try {
       const passwordToUse = passwordChanged ? newPassword : originalDecryptPassword;
-      const newBlob = await reEmbedFiles(stegoBuffer, decryptedFiles, passwordToUse || undefined);
+      const newBlob = await reEmbedFiles(stegoBuffer, decryptedFiles, passwordToUse || undefined, passwordToUse ? decryptMethod : undefined);
       const newBuffer = await newBlob.arrayBuffer();
       setStegoBuffer(newBuffer);
       const url = URL.createObjectURL(newBlob);
@@ -682,6 +687,7 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
     setDecryptedFiles([]);
     setModified(false);
     setNeedsPassword(false);
+    setDetectedMethod(null);
     setDecryptPassword('');
     setShowDecryptPassword(false);
     setFilePreviews({});
@@ -689,7 +695,6 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
     setEditingComments(new Set());
     setStegoDetected(false);
     setDecryptionDone(false);
-    setShowDecryptSuccess(false);
     setEditingFileNames(new Set());
     setNewPassword('');
     setShowNewPassword(false);
@@ -698,8 +703,82 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
     setAllDecryptPreviewsOpen(false);
     setFilterCategory('all');
     setSearchQuery('');
+    setDecryptMethod('aes');
     if (stegoInputRef.current) stegoInputRef.current.value = '';
   };
+
+  // ──────────────────────────────────────────────
+  // Encryption method selector component
+  // ──────────────────────────────────────────────
+  const renderEncryptionMethodSelector = (
+    value: EncryptionMethod,
+    onChange: (m: EncryptionMethod) => void,
+    disabled = false
+  ) => (
+    <div className="grid grid-cols-2 gap-3">
+      {/* XOR Option */}
+      <button
+        type="button"
+        onClick={() => !disabled && onChange('xor')}
+        disabled={disabled}
+        className={`relative rounded-xl border-2 p-4 text-left transition-all cursor-pointer
+          ${value === 'xor'
+            ? 'border-amber-400 bg-amber-50/50 shadow-sm'
+            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+          }
+          ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+        `}
+      >
+        {value === 'xor' && (
+          <div className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-amber-400 flex items-center justify-center">
+            <Check className="w-3 h-3 text-white" />
+          </div>
+        )}
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-2.5 ${
+          value === 'xor' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'
+        }`}>
+          <Zap className="w-4.5 h-4.5" />
+        </div>
+        <p className={`text-sm font-bold mb-0.5 ${value === 'xor' ? 'text-amber-700' : 'text-slate-700'}`}>
+          XOR
+        </p>
+        <p className={`text-[11px] leading-snug ${value === 'xor' ? 'text-amber-600/80' : 'text-slate-400'}`}>
+          Cepat & ringan. Data disimpan dalam format biner tanpa encoding base64. Keamanan dasar.
+        </p>
+      </button>
+
+      {/* AES Option */}
+      <button
+        type="button"
+        onClick={() => !disabled && onChange('aes')}
+        disabled={disabled}
+        className={`relative rounded-xl border-2 p-4 text-left transition-all cursor-pointer
+          ${value === 'aes'
+            ? 'border-emerald-400 bg-emerald-50/50 shadow-sm'
+            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+          }
+          ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+        `}
+      >
+        {value === 'aes' && (
+          <div className="absolute top-2.5 right-2.5 w-5 h-5 rounded-full bg-emerald-400 flex items-center justify-center">
+            <Check className="w-3 h-3 text-white" />
+          </div>
+        )}
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-2.5 ${
+          value === 'aes' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'
+        }`}>
+          <ShieldCheck className="w-4.5 h-4.5" />
+        </div>
+        <p className={`text-sm font-bold mb-0.5 ${value === 'aes' ? 'text-emerald-700' : 'text-slate-700'}`}>
+          AES-256
+        </p>
+        <p className={`text-[11px] leading-snug ${value === 'aes' ? 'text-emerald-600/80' : 'text-slate-400'}`}>
+          Standar industri. Data di-encode base64 lalu dienkripsi AES-GCM dengan PBKDF2 key derivation.
+        </p>
+      </button>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -938,32 +1017,20 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                                       value={embedFileNames[index] ?? file.name}
                                       onChange={(e) => {
                                         setEmbedFileNames((prev) => ({ ...prev, [index]: e.target.value }));
-                                        setStegoResult(null);
-                                        setStegoPreview(null);
-                                        setStegoOutputName('');
-                                        setEditingStegoName(false);
+                                        setStegoResult(null); setStegoPreview(null); setStegoOutputName(''); setEditingStegoName(false);
                                       }}
                                       className="flex-1 min-w-0 bg-white border border-orange-300 rounded-lg px-2.5 py-1 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
                                       autoFocus
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') toggleEditEmbedFileName(index);
-                                      }}
+                                      onKeyDown={(e) => { if (e.key === 'Enter') toggleEditEmbedFileName(index); }}
                                     />
-                                    <button
-                                      onClick={() => toggleEditEmbedFileName(index)}
-                                      className="p-1.5 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 transition-all cursor-pointer shrink-0"
-                                    >
+                                    <button onClick={() => toggleEditEmbedFileName(index)} className="p-1.5 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 transition-all cursor-pointer shrink-0">
                                       <Check className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-1.5 group/name">
                                     <p className="text-sm font-medium text-slate-700 truncate">{displayName}</p>
-                                    <button
-                                      onClick={() => toggleEditEmbedFileName(index)}
-                                      className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-orange-50 text-slate-400 hover:text-orange-500 transition-all cursor-pointer shrink-0"
-                                      title="Ubah nama file"
-                                    >
+                                    <button onClick={() => toggleEditEmbedFileName(index)} className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-orange-50 text-slate-400 hover:text-orange-500 transition-all cursor-pointer shrink-0" title="Ubah nama file">
                                       <Edit3 className="w-3 h-3" />
                                     </button>
                                   </div>
@@ -972,30 +1039,17 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                                   <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
                                   {comment && (
                                     <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md">
-                                      <MessageSquare className="w-2.5 h-2.5" />
-                                      Komentar
+                                      <MessageSquare className="w-2.5 h-2.5" />Komentar
                                     </span>
                                   )}
                                 </div>
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  onClick={() => toggleEmbedComment(index)}
-                                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                                    isCommentOpen
-                                      ? 'bg-amber-50 text-amber-500'
-                                      : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
-                                  }`}
-                                  title={isCommentOpen ? 'Tutup komentar' : 'Tambah komentar'}
-                                >
+                                <button onClick={() => toggleEmbedComment(index)} className={`p-1.5 rounded-lg transition-all cursor-pointer ${isCommentOpen ? 'bg-amber-50 text-amber-500' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'}`} title={isCommentOpen ? 'Tutup komentar' : 'Tambah komentar'}>
                                   <MessageSquarePlus className="w-4 h-4" />
                                 </button>
                                 {hasPreviewable && (
-                                  <button
-                                    onClick={() => openEmbedPreview(index)}
-                                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
-                                    title={isOpen ? 'Tutup preview' : 'Lihat preview'}
-                                  >
+                                  <button onClick={() => openEmbedPreview(index)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer" title={isOpen ? 'Tutup preview' : 'Lihat preview'}>
                                     {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                                   </button>
                                 )}
@@ -1012,10 +1066,7 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                                     value={comment}
                                     onChange={(e) => {
                                       setEmbedComments((prev) => ({ ...prev, [index]: e.target.value }));
-                                      setStegoResult(null);
-                                      setStegoPreview(null);
-                                      setStegoOutputName('');
-                                      setEditingStegoName(false);
+                                      setStegoResult(null); setStegoPreview(null); setStegoOutputName(''); setEditingStegoName(false);
                                     }}
                                     placeholder="Tambahkan komentar untuk file ini..."
                                     rows={2}
@@ -1036,14 +1087,47 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                   )}
                 </section>
 
-                {/* Password */}
+                {/* Step 3: Encryption Method */}
+                <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
+                  <div className="flex items-center gap-2.5 mb-4">
+                    <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">3</div>
+                    <h3 className="text-sm font-bold text-slate-700">Jenis Keamanan</h3>
+                    <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wide">Opsional</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-3">
+                    Pilih metode enkripsi untuk melindungi file rahasia Anda. Hanya aktif jika password diisi.
+                  </p>
+                  {renderEncryptionMethodSelector(embedMethod, (m) => {
+                    setEmbedMethod(m);
+                    setStegoResult(null); setStegoPreview(null); setStegoOutputName(''); setEditingStegoName(false);
+                  })}
+                  {!embedPassword && (
+                    <div className="mt-3 flex items-start gap-2 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <Info className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
+                      <p className="text-[11px] text-slate-400 leading-snug">
+                        Jenis keamanan hanya berlaku jika Anda mengisi password di langkah berikutnya. Tanpa password, file disimpan tanpa enkripsi.
+                      </p>
+                    </div>
+                  )}
+                </section>
+
+                {/* Step 4: Password */}
                 <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">3</div>
+                      <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">4</div>
                       <h3 className="text-sm font-bold text-slate-700">Password</h3>
                       <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wide">Opsional</span>
                     </div>
+                    {embedPassword && (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wide ${
+                        embedMethod === 'aes'
+                          ? 'text-emerald-600 bg-emerald-50'
+                          : 'text-amber-600 bg-amber-50'
+                      }`}>
+                        {embedMethod === 'aes' ? 'AES-256' : 'XOR'}
+                      </span>
+                    )}
                   </div>
                   <div className="relative">
                     <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -1107,25 +1191,16 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                                 onChange={(e) => setStegoOutputName(e.target.value)}
                                 className="flex-1 min-w-0 bg-white border border-emerald-300 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-emerald-100 outline-none transition-all"
                                 autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') setEditingStegoName(false);
-                                }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') setEditingStegoName(false); }}
                               />
-                              <button
-                                onClick={() => setEditingStegoName(false)}
-                                className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-all cursor-pointer shrink-0"
-                              >
+                              <button onClick={() => setEditingStegoName(false)} className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-all cursor-pointer shrink-0">
                                 <Check className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           ) : (
                             <div className="flex items-center gap-1.5 group">
                               <p className="text-sm font-semibold text-slate-700 truncate">{stegoOutputName}</p>
-                              <button
-                                onClick={() => setEditingStegoName(true)}
-                                className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-emerald-100 text-slate-400 hover:text-emerald-600 transition-all cursor-pointer shrink-0"
-                                title="Ubah nama file"
-                              >
+                              <button onClick={() => setEditingStegoName(true)} className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-emerald-100 text-slate-400 hover:text-emerald-600 transition-all cursor-pointer shrink-0" title="Ubah nama file">
                                 <Edit3 className="w-3 h-3" />
                               </button>
                             </div>
@@ -1134,6 +1209,20 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                         </div>
                       </div>
                     </div>
+
+                    {/* Show encryption info */}
+                    {embedPassword && (
+                      <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-xl border ${
+                        embedMethod === 'aes'
+                          ? 'bg-emerald-50/50 border-emerald-200 text-emerald-700'
+                          : 'bg-amber-50/50 border-amber-200 text-amber-700'
+                      }`}>
+                        {embedMethod === 'aes' ? <ShieldCheck className="w-3.5 h-3.5 shrink-0" /> : <Zap className="w-3.5 h-3.5 shrink-0" />}
+                        <span className="text-[11px] font-semibold">
+                          Dienkripsi dengan {embedMethod === 'aes' ? 'AES-256-GCM' : 'XOR'}
+                        </span>
+                      </div>
+                    )}
 
                     <a
                       href={stegoResult.url}
@@ -1168,6 +1257,7 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
               {/* Left column: inputs */}
               <div className="lg:col-span-1 space-y-5">
+                {/* Step 1: File Stego */}
                 <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
                   <div className="flex items-center gap-2.5 mb-4">
                     <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">1</div>
@@ -1198,29 +1288,75 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                           <p className="text-sm font-semibold text-slate-700 truncate">{stegoFile.name}</p>
                           <p className="text-xs text-slate-400">{formatFileSize(stegoFile.size)}</p>
                         </div>
-                        <button
-                          onClick={clearStegoState}
-                          className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all shrink-0 cursor-pointer"
-                        >
+                        <button onClick={clearStegoState} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all shrink-0 cursor-pointer">
                           <X className="w-4 h-4" />
                         </button>
                       </div>
                       {stegoFilePreview && renderPreview(stegoFilePreview, true)}
                       {stegoDetected && (
-                        <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl animate-fadeIn">
-                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                          <span className="text-xs font-semibold text-emerald-700">Data tersembunyi terdeteksi</span>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl animate-fadeIn">
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span className="text-xs font-semibold text-emerald-700">Data tersembunyi terdeteksi</span>
+                          </div>
+                          {/* Show detected method */}
+                          {detectedMethod && (
+                            <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border animate-fadeIn ${
+                              detectedMethod === 'aes'
+                                ? 'bg-emerald-50/50 border-emerald-200'
+                                : 'bg-amber-50/50 border-amber-200'
+                            }`}>
+                              {detectedMethod === 'aes'
+                                ? <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                : <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                              }
+                              <span className={`text-xs font-semibold ${
+                                detectedMethod === 'aes' ? 'text-emerald-700' : 'text-amber-700'
+                              }`}>
+                                Enkripsi: {detectedMethod === 'aes' ? 'AES-256-GCM' : 'XOR'}
+                              </span>
+                            </div>
+                          )}
+                          {!detectedMethod && needsPassword === false && (
+                            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl animate-fadeIn">
+                              <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span className="text-xs font-semibold text-slate-500">Tanpa enkripsi</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
                   )}
                 </section>
 
-                {/* Password - shown before decryption if needed */}
+                {/* Step 2: Encryption Method (shown when password needed & before decryption) */}
+                {stegoFile && needsPassword && !decryptionDone && detectedMethod && (
+                  <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
+                    <div className="flex items-center gap-2.5 mb-4">
+                      <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">2</div>
+                      <h3 className="text-sm font-bold text-slate-700">Jenis Keamanan</h3>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wide ${
+                        detectedMethod === 'aes'
+                          ? 'text-emerald-600 bg-emerald-50'
+                          : 'text-amber-600 bg-amber-50'
+                      }`}>
+                        Terdeteksi
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mb-3">
+                      Metode enkripsi terdeteksi otomatis dari file stego.
+                    </p>
+                    {renderEncryptionMethodSelector(detectedMethod, () => {}, true)}
+                  </section>
+                )}
+
+                {/* Step 3: Password (shown when password needed & before decryption) */}
                 {stegoFile && needsPassword && !decryptionDone && (
                   <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
                     <div className="flex items-center gap-2.5 mb-3">
-                      <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">2</div>
+                      <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">
+                        {detectedMethod ? '3' : '2'}
+                      </div>
                       <h3 className="text-sm font-bold text-slate-700">Password</h3>
                       <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-wide">Diperlukan</span>
                     </div>
@@ -1243,7 +1379,7 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                   </section>
                 )}
 
-                {/* Decrypt button - hidden after successful decryption */}
+                {/* Decrypt button */}
                 {stegoFile && stegoDetected && !decryptionDone && (
                   <button
                     onClick={handleDecrypt}
@@ -1258,21 +1394,6 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                   </button>
                 )}
 
-                {/* Decryption success - auto hides after 3 seconds */}
-                {showDecryptSuccess && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 animate-fadeUp transition-all">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
-                        <CheckCircle className="w-4 h-4 text-emerald-600" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-emerald-700">Dekripsi Berhasil</p>
-                        <p className="text-xs text-emerald-500">{decryptedFiles.length} file diekstrak</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {/* Update password section - shown after decryption */}
                 {decryptionDone && (
                   <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
@@ -1283,7 +1404,17 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                       <h3 className="text-sm font-bold text-slate-700">Ubah Password</h3>
                       <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wide">Opsional</span>
                     </div>
-                    <p className="text-xs text-slate-400 mb-3">Ubah password dan unduh file cover yang diperbarui.</p>
+                    <p className="text-xs text-slate-400 mb-3">Ubah password dan metode enkripsi lalu unduh file cover yang diperbarui.</p>
+
+                    {/* Method selector for re-embed */}
+                    <div className="mb-3">
+                      <label className="text-xs font-semibold text-slate-500 mb-2 block">Metode Enkripsi</label>
+                      {renderEncryptionMethodSelector(decryptMethod, (m) => {
+                        setDecryptMethod(m);
+                        setPasswordChanged(true);
+                      })}
+                    </div>
+
                     <div className="relative">
                       <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <input
@@ -1291,7 +1422,7 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                         value={newPassword}
                         onChange={(e) => {
                           setNewPassword(e.target.value);
-                          setPasswordChanged(e.target.value !== originalDecryptPassword);
+                          setPasswordChanged(e.target.value !== originalDecryptPassword || decryptMethod !== detectedMethod);
                         }}
                         placeholder="Password baru..."
                         className="focus-ring w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-amber-300 transition-all"
@@ -1304,7 +1435,6 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                       </button>
                     </div>
 
-                    {/* Combined update button: appears when password changed OR files modified */}
                     {hasAnyChanges && (
                       <button
                         onClick={handleUpdateAndDownload}
@@ -1326,7 +1456,6 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
               <div className="lg:col-span-2">
                 {decryptedFiles.length > 0 ? (
                   <section className="bg-white rounded-2xl border-2 border-emerald-200 p-5 animate-fadeUp">
-                    {/* Header */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center">
@@ -1360,7 +1489,7 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                       </div>
                     </div>
 
-                    {/* Category filter tabs - horizontal scrollable */}
+                    {/* Category filter */}
                     <div className="mb-3">
                       <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
                         {FILTER_CATEGORIES.map(({ key, label, icon }) => {
@@ -1380,19 +1509,15 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                               {icon}
                               <span>{label}</span>
                               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center ${
-                                isActive
-                                  ? 'bg-violet-200 text-violet-800'
-                                  : 'bg-slate-200 text-slate-500'
-                              }`}>
-                                {count}
-                              </span>
+                                isActive ? 'bg-violet-200 text-violet-800' : 'bg-slate-200 text-slate-500'
+                              }`}>{count}</span>
                             </button>
                           );
                         })}
                       </div>
                     </div>
 
-                    {/* Search bar */}
+                    {/* Search */}
                     <div className="mb-4">
                       <div className="relative">
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -1404,10 +1529,7 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                           className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-10 py-2.5 text-sm text-slate-700 placeholder-slate-400 focus:border-violet-300 focus:ring-2 focus:ring-violet-100 transition-all outline-none"
                         />
                         {searchQuery && (
-                          <button
-                            onClick={() => setSearchQuery('')}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
-                          >
+                          <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
                             <X className="w-3.5 h-3.5" />
                           </button>
                         )}
@@ -1417,14 +1539,9 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                           <p className="text-xs text-slate-400">
                             Menampilkan <span className="font-semibold text-slate-600">{filteredDecryptedFiles.length}</span> dari {decryptedFiles.length} file
                           </p>
-                          {(filterCategory !== 'all' || searchQuery) && (
-                            <button
-                              onClick={() => { setFilterCategory('all'); setSearchQuery(''); }}
-                              className="text-[11px] font-semibold text-violet-500 hover:text-violet-600 cursor-pointer"
-                            >
-                              Reset Filter
-                            </button>
-                          )}
+                          <button onClick={() => { setFilterCategory('all'); setSearchQuery(''); }} className="text-[11px] font-semibold text-violet-500 hover:text-violet-600 cursor-pointer">
+                            Reset Filter
+                          </button>
                         </div>
                       )}
                     </div>
@@ -1449,7 +1566,6 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                           const isEditingName = editingFileNames.has(file.id);
                           return (
                             <div key={file.id} className="rounded-xl overflow-hidden border border-slate-100 file-item">
-                              {/* File info row */}
                               <div className="flex items-center gap-3 p-3">
                                 <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${getFileIconColor(file.type, file.name)}`}>
                                   {getFileIconEl(file.type, file.name)}
@@ -1463,25 +1579,16 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                                         onChange={(e) => updateDecryptedFileName(file.id, e.target.value)}
                                         className="flex-1 min-w-0 bg-white border border-violet-300 rounded-lg px-2.5 py-1 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-violet-100 outline-none transition-all"
                                         autoFocus
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') toggleEditFileName(file.id);
-                                        }}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') toggleEditFileName(file.id); }}
                                       />
-                                      <button
-                                        onClick={() => toggleEditFileName(file.id)}
-                                        className="p-1.5 rounded-lg bg-violet-100 text-violet-600 hover:bg-violet-200 transition-all cursor-pointer shrink-0"
-                                      >
+                                      <button onClick={() => toggleEditFileName(file.id)} className="p-1.5 rounded-lg bg-violet-100 text-violet-600 hover:bg-violet-200 transition-all cursor-pointer shrink-0">
                                         <Check className="w-3.5 h-3.5" />
                                       </button>
                                     </div>
                                   ) : (
                                     <div className="flex items-center gap-1.5 group/name">
                                       <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
-                                      <button
-                                        onClick={() => toggleEditFileName(file.id)}
-                                        className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-violet-50 text-slate-400 hover:text-violet-500 transition-all cursor-pointer shrink-0"
-                                        title="Ubah nama file"
-                                      >
+                                      <button onClick={() => toggleEditFileName(file.id)} className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-violet-50 text-slate-400 hover:text-violet-500 transition-all cursor-pointer shrink-0" title="Ubah nama file">
                                         <Edit3 className="w-3 h-3" />
                                       </button>
                                     </div>
@@ -1490,8 +1597,7 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                                     <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
                                     {!isOpen && hasComment && (
                                       <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md">
-                                        <MessageSquare className="w-2.5 h-2.5" />
-                                        Komentar
+                                        <MessageSquare className="w-2.5 h-2.5" />Komentar
                                       </span>
                                     )}
                                   </div>
@@ -1500,36 +1606,24 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                                   <button
                                     onClick={() => openDecryptPreview(file.id)}
                                     className={`p-2 rounded-lg transition-all cursor-pointer ${
-                                      isOpen
-                                        ? 'bg-violet-50 text-violet-500'
-                                        : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
+                                      isOpen ? 'bg-violet-50 text-violet-500' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
                                     }`}
                                     title={isOpen ? 'Tutup detail' : 'Lihat detail'}
                                   >
                                     {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                                   </button>
-                                  <button
-                                    onClick={() => downloadFile(file)}
-                                    className="p-2 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-500 transition-all cursor-pointer"
-                                    title="Unduh"
-                                  >
+                                  <button onClick={() => downloadFile(file)} className="p-2 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-500 transition-all cursor-pointer" title="Unduh">
                                     <Download className="w-4 h-4" />
                                   </button>
-                                  <button
-                                    onClick={() => requestRemoveDecryptedFile(file.id, file.name)}
-                                    className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer"
-                                    title="Hapus"
-                                  >
+                                  <button onClick={() => requestRemoveDecryptedFile(file.id, file.name)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer" title="Hapus">
                                     <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
                               </div>
 
-                              {/* Expandable content */}
                               {isOpen && (
                                 <div className="px-3 pb-3 space-y-3 animate-slideDown">
                                   {hasMediaPreview && renderDecryptPreview(file.id, file.type, file.name)}
-
                                   <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
                                     <div className="flex items-center justify-between mb-1.5">
                                       <div className="flex items-center gap-1.5">
@@ -1539,15 +1633,12 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                                       <button
                                         onClick={() => toggleEditComment(file.id)}
                                         className={`text-[11px] font-semibold px-2 py-0.5 rounded-md transition-all cursor-pointer ${
-                                          isEditing
-                                            ? 'text-amber-700 bg-amber-200 hover:bg-amber-300'
-                                            : 'text-amber-500 hover:text-amber-600 hover:bg-amber-100'
+                                          isEditing ? 'text-amber-700 bg-amber-200 hover:bg-amber-300' : 'text-amber-500 hover:text-amber-600 hover:bg-amber-100'
                                         }`}
                                       >
                                         {isEditing ? 'Selesai' : 'Edit'}
                                       </button>
                                     </div>
-
                                     {isEditing ? (
                                       <textarea
                                         value={file.comment || ''}
@@ -1558,11 +1649,7 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                                         autoFocus
                                       />
                                     ) : (
-                                      <p className={`text-xs leading-relaxed whitespace-pre-wrap ${
-                                        file.comment
-                                          ? 'text-slate-600'
-                                          : 'text-slate-400 italic'
-                                      }`}>
+                                      <p className={`text-xs leading-relaxed whitespace-pre-wrap ${file.comment ? 'text-slate-600' : 'text-slate-400 italic'}`}>
                                         {file.comment || 'Tidak ada komentar.'}
                                       </p>
                                     )}
@@ -1575,7 +1662,7 @@ const files = await extractFiles(stegoBuffer, decryptPassword || undefined);
                       )}
                     </div>
 
-                    {/* Action buttons */}
+                    {/* Download all */}
                     <div className="mt-5 pt-5 border-t border-slate-100">
                       <button
                         onClick={downloadAllFiles}
