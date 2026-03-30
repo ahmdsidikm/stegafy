@@ -14,7 +14,8 @@ import {
   embedFiles, extractFiles, checkForHiddenData, reEmbedFiles,
   readFileAsArrayBuffer, readFileAsDataURL, readFileAsText,
   blobToDataURL, blobToText, formatFileSize, getFileCategory,
-  type HiddenFile, type EncryptionMethod,
+  calculatePasswordStrength, secureWipeString,
+  type HiddenFile, type EncryptionMethod, type PasswordStrength,
 } from './utils/stego';
 
 type Tab = 'embed' | 'decrypt';
@@ -78,6 +79,69 @@ const FILTER_CATEGORIES: { key: FilterCategory; label: string; icon: React.React
   { key: 'text', label: 'Teks', icon: <FileText className="w-3.5 h-3.5" /> },
   { key: 'other', label: 'File', icon: <FileIcon className="w-3.5 h-3.5" /> },
 ];
+
+// ──────────────────────────────────────────────
+// Password Strength Indicator Component
+// ──────────────────────────────────────────────
+
+function PasswordStrengthIndicator({ password }: { password: string }) {
+  const strength = useMemo(() => calculatePasswordStrength(password), [password]);
+
+  if (!password) return null;
+
+  return (
+    <div className="mt-2.5 animate-slideDown">
+      {/* Strength bar */}
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ease-out ${strength.color}`}
+            style={{ width: `${strength.percentage}%` }}
+          />
+        </div>
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${strength.textColor} whitespace-nowrap`}>
+          {strength.label}
+        </span>
+      </div>
+
+      {/* Strength dots */}
+      <div className="flex items-center gap-1 mb-2">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+              i < strength.score
+                ? strength.color
+                : 'bg-slate-100'
+            }`}
+          />
+        ))}
+      </div>
+
+      {/* Suggestions */}
+      {strength.suggestions.length > 0 && strength.score < 3 && (
+        <div className={`${strength.bgColor} rounded-lg px-3 py-2 space-y-1`}>
+          {strength.suggestions.map((s, i) => (
+            <div key={i} className="flex items-start gap-1.5">
+              <Info className={`w-3 h-3 mt-0.5 shrink-0 ${strength.textColor}`} />
+              <span className={`text-[11px] leading-snug ${strength.textColor}`}>{s}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Success message for strong passwords */}
+      {strength.score >= 3 && (
+        <div className="flex items-center gap-1.5 bg-emerald-50 rounded-lg px-3 py-2">
+          <CheckCircle className="w-3 h-3 text-emerald-500 shrink-0" />
+          <span className="text-[11px] text-emerald-600 font-medium">
+            {strength.score === 4 ? 'Password sangat aman!' : 'Password cukup aman'}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function App() {
   const [activeTab, setActiveTab] = useState<Tab>('embed');
@@ -321,11 +385,31 @@ export function App() {
     setModified(true);
   };
 
+  // Secure password clearing function
+  const clearEmbedPassword = useCallback(() => {
+    secureWipeString(embedPassword);
+    setEmbedPassword('');
+    setShowEmbedPassword(false);
+  }, [embedPassword]);
+
+  const clearDecryptPassword = useCallback(() => {
+    secureWipeString(decryptPassword);
+    setDecryptPassword('');
+    setShowDecryptPassword(false);
+  }, [decryptPassword]);
+
+  const clearNewPassword = useCallback(() => {
+    secureWipeString(newPassword);
+    setNewPassword('');
+    setShowNewPassword(false);
+  }, [newPassword]);
+
   const handleEmbed = async () => {
     if (!coverFile) return showToast('Pilih file cover terlebih dahulu!', 'error');
     if (secretFiles.length === 0) return showToast('Tambahkan minimal satu file rahasia!', 'error');
 
     setEmbedding(true);
+    const passwordCopy = embedPassword; // Copy before clearing
     try {
       const renamedFiles = secretFiles.map((file, index) => {
         const customName = embedFileNames[index];
@@ -335,15 +419,9 @@ export function App() {
         return file;
       });
 
-      const methodToUse = embedPassword ? embedMethod : undefined;
-      const isAes = embedPassword && embedMethod === 'aes';
+      const methodToUse = passwordCopy ? embedMethod : undefined;
 
-      const { blob, extension } = await embedFiles(coverFile, renamedFiles, embedPassword || undefined, embedComments, methodToUse);
-
-      // Add 3-second delay for AES encryption
-      if (isAes) {
-        await delay(3000);
-      }
+      const { blob, extension } = await embedFiles(coverFile, renamedFiles, passwordCopy || undefined, embedComments, methodToUse);
 
       const url = URL.createObjectURL(blob);
       setStegoResult({ url, extension });
@@ -358,10 +436,14 @@ export function App() {
       else if (cat === 'audio' || cat === 'video') sp.url = url;
       setStegoPreview(sp);
 
-      showToast('File berhasil disembunyikan!', 'success');
+      // Clear password from memory after successful embed
+      clearEmbedPassword();
+      showToast('File berhasil disembunyikan! Password telah dihapus dari memori.', 'success');
     } catch (err) {
       showToast(`Error: ${(err as Error).message}`, 'error');
     } finally {
+      // Always wipe the password copy
+      secureWipeString(passwordCopy);
       setEmbedding(false);
     }
   };
@@ -410,7 +492,7 @@ export function App() {
         setDecryptMethod(check.method);
       }
       if (check.hasPassword) {
-        const methodLabel = check.method === 'aes' ? 'AES-256' : 'XOR';
+        const methodLabel = check.method === 'aes' ? 'AES-256 + Argon2' : 'XOR';
         showToast(`File memerlukan password (${methodLabel}) untuk dekripsi.`, 'info');
       } else {
         showToast('Data tersembunyi terdeteksi! Klik Dekripsi.', 'info');
@@ -423,15 +505,9 @@ export function App() {
   const handleDecrypt = async () => {
     if (!stegoBuffer) return showToast('Pilih file stego terlebih dahulu!', 'error');
     setDecrypting(true);
+    const passwordCopy = decryptPassword; // Copy before potential clearing
     try {
-      const isAes = detectedMethod === 'aes';
-
-      const files = await extractFiles(stegoBuffer, decryptPassword || undefined, detectedMethod);
-
-      // Add 3-second delay for AES decryption
-      if (isAes) {
-        await delay(3000);
-      }
+      const files = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod);
 
       setDecryptedFiles(files);
       setModified(false);
@@ -439,14 +515,17 @@ export function App() {
       setEditingComments(new Set());
       setEditingFileNames(new Set());
       setDecryptionDone(true);
-      setOriginalDecryptPassword(decryptPassword);
-      setNewPassword(decryptPassword);
+      setOriginalDecryptPassword(passwordCopy);
+      setNewPassword(passwordCopy);
       setPasswordChanged(false);
       setAllDecryptPreviewsOpen(false);
       setFilterCategory('all');
       setSearchQuery('');
       if (detectedMethod) setDecryptMethod(detectedMethod);
-      showToast(`Berhasil mendekripsi ${files.length} file!`, 'success');
+
+      // Clear decrypt password from memory after successful decryption
+      clearDecryptPassword();
+      showToast(`Berhasil mendekripsi ${files.length} file! Password telah dihapus dari memori.`, 'success');
 
       const previews: Record<string, string> = {};
       for (const f of files) {
@@ -460,6 +539,7 @@ export function App() {
     } catch (err) {
       showToast(`Error: ${(err as Error).message}`, 'error');
     } finally {
+      secureWipeString(passwordCopy);
       setDecrypting(false);
     }
   };
@@ -510,16 +590,10 @@ export function App() {
   const handleUpdateAndDownload = async () => {
     if (!stegoBuffer || decryptedFiles.length === 0) return;
     setUpdating(true);
+    const passwordToUse = passwordChanged ? newPassword : originalDecryptPassword;
+    const passwordCopy = passwordToUse; // Copy
     try {
-      const passwordToUse = passwordChanged ? newPassword : originalDecryptPassword;
-      const isAes = passwordToUse && decryptMethod === 'aes';
-
-      const newBlob = await reEmbedFiles(stegoBuffer, decryptedFiles, passwordToUse || undefined, passwordToUse ? decryptMethod : undefined);
-
-      // Add 3-second delay for AES re-embedding
-      if (isAes) {
-        await delay(3000);
-      }
+      const newBlob = await reEmbedFiles(stegoBuffer, decryptedFiles, passwordCopy || undefined, passwordCopy ? decryptMethod : undefined);
 
       const newBuffer = await newBlob.arrayBuffer();
       setStegoBuffer(newBuffer);
@@ -530,13 +604,17 @@ export function App() {
       a.download = `updated_stego.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
-      setOriginalDecryptPassword(passwordToUse);
+      setOriginalDecryptPassword(passwordCopy);
       setModified(false);
       setPasswordChanged(false);
-      showToast('File cover diperbarui dan diunduh!', 'success');
+
+      // Clear new password from memory after successful update
+      clearNewPassword();
+      showToast('File cover diperbarui dan diunduh! Password telah dihapus dari memori.', 'success');
     } catch (err) {
       showToast(`Error: ${(err as Error).message}`, 'error');
     } finally {
+      secureWipeString(passwordCopy);
       setUpdating(false);
     }
   };
@@ -632,6 +710,11 @@ export function App() {
   };
 
   const clearStegoState = () => {
+    // Clear passwords from memory
+    secureWipeString(decryptPassword);
+    secureWipeString(newPassword);
+    secureWipeString(originalDecryptPassword);
+
     setStegoFile(null);
     setStegoFilePreview(null);
     setStegoBuffer(null);
@@ -720,7 +803,7 @@ export function App() {
         </div>
         <p className={`text-sm font-bold mb-0.5 ${value === 'aes' && !disabled ? 'text-emerald-700' : 'text-slate-600'}`}>Mode Pro</p>
         <p className={`text-[10px] leading-snug ${value === 'aes' && !disabled ? 'text-emerald-600/80' : 'text-slate-400'}`}>
-          Standar industri. Lebih aman.
+          AES-256 + Argon2. Paling aman.
         </p>
       </button>
     </div>
@@ -769,8 +852,8 @@ export function App() {
         </div>
       )}
 
-      {/* ====== TOASTS ====== */}
-      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-[min(92vw,380px)]">
+      {/* ====== TOASTS — MOVED TO BOTTOM RIGHT ====== */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col-reverse gap-2 w-[min(92vw,380px)]">
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast-enter flex items-start gap-3 px-4 py-3 rounded-xl shadow-lg border ${toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : ''} ${toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : ''} ${toast.type === 'info' ? 'bg-blue-50 border-blue-200 text-blue-800' : ''}`}>
             {toast.type === 'success' && <CheckCircle className="w-4 h-4 mt-0.5 shrink-0 text-emerald-500" />}
@@ -951,7 +1034,7 @@ export function App() {
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wide ${
                         embedMethod === 'aes' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'
                       }`}>
-                        {embedMethod === 'aes' ? 'AES-256' : 'XOR'}
+                        {embedMethod === 'aes' ? 'AES-256 + Argon2' : 'XOR'}
                       </span>
                     )}
                   </div>
@@ -971,6 +1054,9 @@ export function App() {
                     </button>
                   </div>
 
+                  {/* Password strength indicator */}
+                  <PasswordStrengthIndicator password={embedPassword} />
+
                   {/* Encryption method selector (below password) */}
                   <div className="mt-4">
                     <div className="flex items-center justify-between mb-2.5">
@@ -988,6 +1074,17 @@ export function App() {
                       !embedPassword
                     )}
                   </div>
+
+                  {/* Security info for AES + Argon2 */}
+                  {embedPassword && embedMethod === 'aes' && (
+                    <div className="mt-3 flex items-start gap-2 px-3 py-2.5 bg-emerald-50/60 border border-emerald-200 rounded-xl animate-fadeIn">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[11px] font-semibold text-emerald-700">Argon2 + AES-256-GCM</p>
+                        <p className="text-[10px] text-emerald-600/80 mt-0.5">Key derivation menggunakan Argon2 (memory-hard) untuk perlindungan maksimal terhadap brute-force.</p>
+                      </div>
+                    </div>
+                  )}
                 </section>
 
                 {/* Embed Button */}
@@ -1000,7 +1097,7 @@ export function App() {
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       {embedPassword && embedMethod === 'aes'
-                        ? 'Mengenkripsi dengan AES-256...'
+                        ? 'Mengenkripsi dengan AES-256 + Argon2...'
                         : 'Menyembunyikan...'}
                     </>
                   ) : (
@@ -1044,14 +1141,11 @@ export function App() {
                         </div>
                       </div>
                     </div>
-                    {embedPassword && (
-                      <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-xl border ${
-                        embedMethod === 'aes' ? 'bg-emerald-50/50 border-emerald-200 text-emerald-700' : 'bg-amber-50/50 border-amber-200 text-amber-700'
-                      }`}>
-                        {embedMethod === 'aes' ? <ShieldCheck className="w-3.5 h-3.5 shrink-0" /> : <Zap className="w-3.5 h-3.5 shrink-0" />}
-                        <span className="text-[11px] font-semibold">Dienkripsi dengan {embedMethod === 'aes' ? 'AES-256-GCM' : 'XOR'}</span>
-                      </div>
-                    )}
+                    {/* Password cleared notice */}
+                    <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl">
+                      <Shield className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                      <span className="text-[11px] font-semibold text-blue-700">Password telah dihapus dari memori</span>
+                    </div>
                     <a href={stegoResult.url} download={stegoOutputName || `stego_file.${stegoResult.extension}`} className="mt-4 w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-sm font-bold transition-colors active:scale-[0.98]">
                       <Download className="w-4 h-4" />Unduh File
                     </a>
@@ -1125,7 +1219,7 @@ export function App() {
                             }`}>
                               {detectedMethod === 'aes' ? <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" /> : <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                               <span className={`text-xs font-semibold ${detectedMethod === 'aes' ? 'text-emerald-700' : 'text-amber-700'}`}>
-                                Enkripsi: {detectedMethod === 'aes' ? 'AES-256-GCM' : 'XOR'}
+                                Enkripsi: {detectedMethod === 'aes' ? 'AES-256 + Argon2' : 'XOR'}
                               </span>
                             </div>
                           )}
@@ -1141,7 +1235,7 @@ export function App() {
                   )}
                 </section>
 
-                {/* Step 2: Password + Encryption Method (combined, shown when password needed & before decryption) */}
+                {/* Step 2: Password + Encryption Method */}
                 {stegoFile && needsPassword && !decryptionDone && (
                   <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
                     <div className="flex items-center justify-between mb-3">
@@ -1188,13 +1282,21 @@ export function App() {
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
                         {detectedMethod === 'aes'
-                          ? 'Mendekripsi AES-256...'
+                          ? 'Mendekripsi AES-256 + Argon2...'
                           : 'Mendekripsi...'}
                       </>
                     ) : (
                       <><Unlock className="w-4 h-4" />Dekripsi</>
                     )}
                   </button>
+                )}
+
+                {/* Password cleared notice after decryption */}
+                {decryptionDone && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl animate-fadeIn">
+                    <Shield className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    <span className="text-[11px] font-semibold text-blue-700">Password dekripsi telah dihapus dari memori</span>
+                  </div>
                 )}
 
                 {/* Update password section - shown after decryption */}
@@ -1227,6 +1329,9 @@ export function App() {
                       </button>
                     </div>
 
+                    {/* Password strength indicator for new password */}
+                    <PasswordStrengthIndicator password={newPassword} />
+
                     {/* Method selector for re-embed */}
                     <div className="mt-4">
                       <div className="flex items-center justify-between mb-2.5">
@@ -1248,6 +1353,17 @@ export function App() {
                       )}
                     </div>
 
+                    {/* Security info for AES + Argon2 */}
+                    {newPassword && decryptMethod === 'aes' && (
+                      <div className="mt-3 flex items-start gap-2 px-3 py-2.5 bg-emerald-50/60 border border-emerald-200 rounded-xl animate-fadeIn">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-[11px] font-semibold text-emerald-700">Argon2 + AES-256-GCM</p>
+                          <p className="text-[10px] text-emerald-600/80 mt-0.5">Key derivation menggunakan Argon2 (memory-hard).</p>
+                        </div>
+                      </div>
+                    )}
+
                     {hasAnyChanges && (
                       <button
                         onClick={handleUpdateAndDownload}
@@ -1258,7 +1374,7 @@ export function App() {
                           <>
                             <Loader2 className="w-4 h-4 animate-spin" />
                             {newPassword && decryptMethod === 'aes'
-                              ? 'Mengenkripsi ulang dengan AES-256...'
+                              ? 'Mengenkripsi ulang dengan AES-256 + Argon2...'
                               : 'Memperbarui...'}
                           </>
                         ) : (
