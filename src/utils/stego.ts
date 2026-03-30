@@ -1,3 +1,5 @@
+// utils/stego.ts
+
 export interface HiddenFile {
   id: string;
   name: string;
@@ -8,20 +10,96 @@ export interface HiddenFile {
 }
 
 const MAGIC_BYTES = [0x53, 0x54, 0x45, 0x47]; // "STEG"
+const AES_SALT_LENGTH = 16;
+const AES_IV_LENGTH = 12;
+const PBKDF2_ITERATIONS = 100_000;
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 }
 
-function xorEncrypt(data: Uint8Array<ArrayBuffer>, password: string): Uint8Array<ArrayBuffer> {
-  if (!password) return data;
-  const result = new Uint8Array(data.length) as Uint8Array<ArrayBuffer>;
-  const passBytes = new TextEncoder().encode(password);
-  for (let i = 0; i < data.length; i++) {
-    result[i] = data[i] ^ passBytes[i % passBytes.length];
-  }
+// ──────────────────────────────────────────────
+// AES-256-GCM Encryption / Decryption
+// ──────────────────────────────────────────────
+
+async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Encrypts data using AES-256-GCM.
+ * Output layout: [salt (16 bytes)][iv (12 bytes)][ciphertext + auth tag]
+ */
+async function aesEncrypt(data: Uint8Array, password: string): Promise<Uint8Array> {
+  const salt = crypto.getRandomValues(new Uint8Array(AES_SALT_LENGTH));
+  const iv = crypto.getRandomValues(new Uint8Array(AES_IV_LENGTH));
+  const key = await deriveKey(password, salt);
+
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    data
+  );
+
+  // Combine: salt + iv + ciphertext
+  const result = new Uint8Array(AES_SALT_LENGTH + AES_IV_LENGTH + ciphertext.byteLength);
+  result.set(salt, 0);
+  result.set(iv, AES_SALT_LENGTH);
+  result.set(new Uint8Array(ciphertext), AES_SALT_LENGTH + AES_IV_LENGTH);
+
   return result;
 }
+
+/**
+ * Decrypts data that was encrypted with aesEncrypt.
+ * Expects layout: [salt (16 bytes)][iv (12 bytes)][ciphertext + auth tag]
+ */
+async function aesDecrypt(data: Uint8Array, password: string): Promise<Uint8Array> {
+  if (data.length < AES_SALT_LENGTH + AES_IV_LENGTH + 1) {
+    throw new Error('Data terenkripsi terlalu pendek.');
+  }
+
+  const salt = data.slice(0, AES_SALT_LENGTH);
+  const iv = data.slice(AES_SALT_LENGTH, AES_SALT_LENGTH + AES_IV_LENGTH);
+  const ciphertext = data.slice(AES_SALT_LENGTH + AES_IV_LENGTH);
+
+  const key = await deriveKey(password, salt);
+
+  try {
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      ciphertext
+    );
+    return new Uint8Array(plaintext);
+  } catch {
+    throw new Error('Gagal mendekripsi. Password salah atau data rusak.');
+  }
+}
+
+// ──────────────────────────────────────────────
+// File Reading Helpers
+// ──────────────────────────────────────────────
 
 export function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
@@ -68,6 +146,10 @@ export function blobToText(blob: Blob): Promise<string> {
   });
 }
 
+// ──────────────────────────────────────────────
+// Base64 Helpers
+// ──────────────────────────────────────────────
+
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
@@ -88,6 +170,16 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer as ArrayBuffer;
 }
 
+// ──────────────────────────────────────────────
+// Steganography Core Functions
+// ──────────────────────────────────────────────
+
+/**
+ * Flow: file → JSON payload → AES-256-GCM encrypt → append to cover
+ *
+ * Final layout: [cover bytes][encrypted payload][4-byte payload size][4-byte STEG magic]
+ * Without password: [cover bytes][plain payload][4-byte payload size][4-byte STEG magic]
+ */
 export async function embedFiles(
   coverFile: File,
   secretFiles: File[],
@@ -122,11 +214,14 @@ export async function embedFiles(
   };
 
   const payloadJson = JSON.stringify(payloadObj);
-  const encoded = new TextEncoder().encode(payloadJson);
-  let payloadBytes = new Uint8Array(encoded.buffer as ArrayBuffer, encoded.byteOffset, encoded.byteLength);
+  const plainBytes = new TextEncoder().encode(payloadJson);
 
+  // Encrypt with AES if password provided, otherwise use plain bytes
+  let payloadBytes: Uint8Array;
   if (password) {
-    payloadBytes = xorEncrypt(payloadBytes, password);
+    payloadBytes = await aesEncrypt(plainBytes, password);
+  } else {
+    payloadBytes = new Uint8Array(plainBytes.buffer, plainBytes.byteOffset, plainBytes.byteLength);
   }
 
   const payloadSize = payloadBytes.length;
@@ -186,16 +281,21 @@ export function checkForHiddenData(buffer: ArrayBuffer): { found: boolean; hasPa
   const payloadStart = uint8.length - 8 - payloadSize;
   const payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize));
 
+  // Try parsing as plain JSON first (no password case)
   try {
     const text = new TextDecoder().decode(payloadBytes);
     const obj = JSON.parse(text);
     return { found: true, hasPassword: !!obj.hasPassword };
   } catch {
+    // If JSON parse fails, it's likely AES-encrypted → needs password
     return { found: true, hasPassword: true };
   }
 }
 
-export function extractFiles(buffer: ArrayBuffer, password?: string): HiddenFile[] {
+/**
+ * Flow: read payload from stego → AES-256-GCM decrypt → parse JSON → return files
+ */
+export async function extractFiles(buffer: ArrayBuffer, password?: string): Promise<HiddenFile[]> {
   const uint8 = new Uint8Array(buffer);
 
   if (uint8.length < 8) {
@@ -225,15 +325,19 @@ export function extractFiles(buffer: ArrayBuffer, password?: string): HiddenFile
   }
 
   const payloadStart = uint8.length - 8 - payloadSize;
-  let payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize)) as Uint8Array<ArrayBuffer>;
+  const payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize));
 
+  // Decrypt with AES if password provided, otherwise use raw bytes
+  let plainBytes: Uint8Array;
   if (password) {
-    payloadBytes = xorEncrypt(payloadBytes, password);
+    plainBytes = await aesDecrypt(payloadBytes, password);
+  } else {
+    plainBytes = payloadBytes;
   }
 
   let payloadJson: string;
   try {
-    payloadJson = new TextDecoder().decode(payloadBytes);
+    payloadJson = new TextDecoder().decode(plainBytes);
   } catch {
     throw new Error('Gagal mendekode data. Password mungkin salah.');
   }
@@ -292,11 +396,14 @@ export async function reEmbedFiles(
   };
 
   const payloadJson = JSON.stringify(payloadObj);
-  const reEncoded = new TextEncoder().encode(payloadJson);
-  let payloadBytes = new Uint8Array(reEncoded.buffer as ArrayBuffer, reEncoded.byteOffset, reEncoded.byteLength);
+  const plainBytes = new TextEncoder().encode(payloadJson);
 
+  // Encrypt with AES if password provided
+  let payloadBytes: Uint8Array;
   if (password) {
-    payloadBytes = xorEncrypt(payloadBytes, password);
+    payloadBytes = await aesEncrypt(plainBytes, password);
+  } else {
+    payloadBytes = new Uint8Array(plainBytes.buffer, plainBytes.byteOffset, plainBytes.byteLength);
   }
 
   const newPayloadSize = payloadBytes.length;
@@ -319,6 +426,10 @@ export async function reEmbedFiles(
 
   return new Blob([combined], { type: 'application/octet-stream' });
 }
+
+// ──────────────────────────────────────────────
+// Utility Functions
+// ──────────────────────────────────────────────
 
 export function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
