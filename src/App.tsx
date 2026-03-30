@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import JSZip from 'jszip';
 import {
   Unlock, Upload, X, Download, Lock, Eye,
@@ -7,8 +7,7 @@ import {
   AlertCircle, CheckCircle, Loader2, Package,
   Shield, Info, DownloadCloud, AlertTriangle,
   EyeOff, LockKeyhole, MessageSquare, MessageSquarePlus,
-  Maximize2, Edit3, Check, KeyRound, ArrowLeft,
-  Settings, Filter, Grid3X3, FolderOpen,
+  Maximize2, Edit3, Check, KeyRound,
 } from 'lucide-react';
 import {
   embedFiles, extractFiles, checkForHiddenData, reEmbedFiles,
@@ -18,8 +17,6 @@ import {
 } from './utils/stego';
 
 type Tab = 'embed' | 'decrypt';
-type DecryptView = 'initial' | 'results' | 'settings';
-type FileFilter = 'all' | 'image' | 'video' | 'audio' | 'text' | 'other';
 
 interface Toast {
   id: string;
@@ -69,15 +66,6 @@ function getFileIconColor(type: string, name: string) {
   }
 }
 
-const filterConfig: { key: FileFilter; label: string; icon: React.ReactNode; color: string; activeColor: string }[] = [
-  { key: 'all', label: 'Semua', icon: <Grid3X3 className="w-3.5 h-3.5" />, color: 'text-slate-500 bg-slate-50 hover:bg-slate-100', activeColor: 'text-violet-700 bg-violet-100 ring-1 ring-violet-200' },
-  { key: 'image', label: 'Gambar', icon: <Image className="w-3.5 h-3.5" />, color: 'text-blue-500 bg-blue-50/50 hover:bg-blue-50', activeColor: 'text-blue-700 bg-blue-100 ring-1 ring-blue-200' },
-  { key: 'video', label: 'Video', icon: <Film className="w-3.5 h-3.5" />, color: 'text-purple-500 bg-purple-50/50 hover:bg-purple-50', activeColor: 'text-purple-700 bg-purple-100 ring-1 ring-purple-200' },
-  { key: 'audio', label: 'Audio', icon: <Music className="w-3.5 h-3.5" />, color: 'text-pink-500 bg-pink-50/50 hover:bg-pink-50', activeColor: 'text-pink-700 bg-pink-100 ring-1 ring-pink-200' },
-  { key: 'text', label: 'Teks', icon: <FileText className="w-3.5 h-3.5" />, color: 'text-emerald-500 bg-emerald-50/50 hover:bg-emerald-50', activeColor: 'text-emerald-700 bg-emerald-100 ring-1 ring-emerald-200' },
-  { key: 'other', label: 'Lainnya', icon: <FileIcon className="w-3.5 h-3.5" />, color: 'text-slate-500 bg-slate-50/50 hover:bg-slate-50', activeColor: 'text-slate-700 bg-slate-200 ring-1 ring-slate-300' },
-];
-
 export function App() {
   const [activeTab, setActiveTab] = useState<Tab>('embed');
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -119,6 +107,7 @@ export function App() {
   const [stegoDetected, setStegoDetected] = useState(false);
   const [editingComments, setEditingComments] = useState<Set<string>>(new Set());
   const [decryptionDone, setDecryptionDone] = useState(false);
+  const [showDecryptSuccess, setShowDecryptSuccess] = useState(false);
   const [editingFileNames, setEditingFileNames] = useState<Set<string>>(new Set());
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -126,10 +115,6 @@ export function App() {
   const [updatingPassword, setUpdatingPassword] = useState(false);
   const [originalDecryptPassword, setOriginalDecryptPassword] = useState('');
   const [allDecryptPreviewsOpen, setAllDecryptPreviewsOpen] = useState(false);
-
-  // New decrypt view states
-  const [decryptView, setDecryptView] = useState<DecryptView>('initial');
-  const [activeFilter, setActiveFilter] = useState<FileFilter>('all');
 
   const coverInputRef = useRef<HTMLInputElement>(null);
   const secretInputRef = useRef<HTMLInputElement>(null);
@@ -142,22 +127,13 @@ export function App() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
   }, []);
 
-  // Filtered files
-  const filteredDecryptedFiles = useMemo(() => {
-    if (activeFilter === 'all') return decryptedFiles;
-    return decryptedFiles.filter((f) => getFileCategory(f.type, f.name) === activeFilter);
-  }, [decryptedFiles, activeFilter]);
-
-  // Category counts
-  const categoryCounts = useMemo(() => {
-    const counts: Record<FileFilter, number> = { all: 0, image: 0, video: 0, audio: 0, text: 0, other: 0 };
-    counts.all = decryptedFiles.length;
-    decryptedFiles.forEach((f) => {
-      const cat = getFileCategory(f.type, f.name) as FileFilter;
-      if (cat in counts) counts[cat]++;
-    });
-    return counts;
-  }, [decryptedFiles]);
+  // Auto-hide decrypt success after 3 seconds
+  useEffect(() => {
+    if (showDecryptSuccess) {
+      const timer = setTimeout(() => setShowDecryptSuccess(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [showDecryptSuccess]);
 
   async function buildFilePreview(file: File): Promise<FilePreview> {
     const preview: FilePreview = { name: file.name, size: file.size, type: file.type };
@@ -210,27 +186,44 @@ export function App() {
     setEditingStegoName(false);
     setOpenedEmbedPreviews((prev) => {
       const next = new Set<number>();
-      prev.forEach((i) => { if (i < index) next.add(i); else if (i > index) next.add(i - 1); });
+      prev.forEach((i) => {
+        if (i < index) next.add(i);
+        else if (i > index) next.add(i - 1);
+      });
       return next;
     });
     setEmbedComments((prev) => {
       const next: Record<number, string> = {};
-      Object.entries(prev).forEach(([key, val]) => { const k = Number(key); if (k < index) next[k] = val; else if (k > index) next[k - 1] = val; });
+      Object.entries(prev).forEach(([key, val]) => {
+        const k = Number(key);
+        if (k < index) next[k] = val;
+        else if (k > index) next[k - 1] = val;
+      });
       return next;
     });
     setOpenedEmbedComments((prev) => {
       const next = new Set<number>();
-      prev.forEach((i) => { if (i < index) next.add(i); else if (i > index) next.add(i - 1); });
+      prev.forEach((i) => {
+        if (i < index) next.add(i);
+        else if (i > index) next.add(i - 1);
+      });
       return next;
     });
     setEmbedFileNames((prev) => {
       const next: Record<number, string> = {};
-      Object.entries(prev).forEach(([key, val]) => { const k = Number(key); if (k < index) next[k] = val; else if (k > index) next[k - 1] = val; });
+      Object.entries(prev).forEach(([key, val]) => {
+        const k = Number(key);
+        if (k < index) next[k] = val;
+        else if (k > index) next[k - 1] = val;
+      });
       return next;
     });
     setEditingEmbedFileNames((prev) => {
       const next = new Set<number>();
-      prev.forEach((i) => { if (i < index) next.add(i); else if (i > index) next.add(i - 1); });
+      prev.forEach((i) => {
+        if (i < index) next.add(i);
+        else if (i > index) next.add(i - 1);
+      });
       return next;
     });
   };
@@ -238,7 +231,8 @@ export function App() {
   const openEmbedPreview = (index: number) => {
     setOpenedEmbedPreviews((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) next.delete(index); else next.add(index);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   };
@@ -246,7 +240,8 @@ export function App() {
   const toggleEmbedComment = (index: number) => {
     setOpenedEmbedComments((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) next.delete(index); else next.add(index);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   };
@@ -254,7 +249,10 @@ export function App() {
   const toggleEditEmbedFileName = (index: number) => {
     setEditingEmbedFileNames((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) { next.delete(index); } else {
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        // Initialize with current name if not set
         if (!(index in embedFileNames)) {
           setEmbedFileNames((p) => ({ ...p, [index]: secretFiles[index]?.name ?? '' }));
         }
@@ -267,7 +265,8 @@ export function App() {
   const openDecryptPreview = (fileId: string) => {
     setOpenedDecryptPreviews((prev) => {
       const next = new Set(prev);
-      if (next.has(fileId)) next.delete(fileId); else next.add(fileId);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
       return next;
     });
   };
@@ -277,7 +276,7 @@ export function App() {
       setOpenedDecryptPreviews(new Set());
       setAllDecryptPreviewsOpen(false);
     } else {
-      const allIds = new Set(filteredDecryptedFiles.map((f) => f.id));
+      const allIds = new Set(decryptedFiles.map((f) => f.id));
       setOpenedDecryptPreviews(allIds);
       setAllDecryptPreviewsOpen(true);
     }
@@ -286,7 +285,8 @@ export function App() {
   const toggleEditComment = (fileId: string) => {
     setEditingComments((prev) => {
       const next = new Set(prev);
-      if (next.has(fileId)) next.delete(fileId); else next.add(fileId);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
       return next;
     });
   };
@@ -294,43 +294,55 @@ export function App() {
   const toggleEditFileName = (fileId: string) => {
     setEditingFileNames((prev) => {
       const next = new Set(prev);
-      if (next.has(fileId)) next.delete(fileId); else next.add(fileId);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
       return next;
     });
   };
 
   const updateDecryptedFileName = (fileId: string, name: string) => {
-    setDecryptedFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, name } : f)));
+    setDecryptedFiles((prev) =>
+      prev.map((f) => (f.id === fileId ? { ...f, name } : f))
+    );
     setModified(true);
   };
 
   const updateDecryptedFileComment = (fileId: string, comment: string) => {
-    setDecryptedFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, comment } : f)));
+    setDecryptedFiles((prev) =>
+      prev.map((f) => (f.id === fileId ? { ...f, comment } : f))
+    );
     setModified(true);
   };
 
   const handleEmbed = async () => {
     if (!coverFile) return showToast('Pilih file cover terlebih dahulu!', 'error');
     if (secretFiles.length === 0) return showToast('Tambahkan minimal satu file rahasia!', 'error');
+
     setEmbedding(true);
     try {
+      // Create renamed files based on embedFileNames
       const renamedFiles = secretFiles.map((file, index) => {
         const customName = embedFileNames[index];
-        if (customName && customName !== file.name) return new File([file], customName, { type: file.type });
+        if (customName && customName !== file.name) {
+          return new File([file], customName, { type: file.type });
+        }
         return file;
       });
+
       const { blob, extension } = await embedFiles(coverFile, renamedFiles, embedPassword || undefined, embedComments);
       const url = URL.createObjectURL(blob);
       setStegoResult({ url, extension });
       const defaultName = `stego_file.${extension}`;
       setStegoOutputName(defaultName);
       setEditingStegoName(false);
+
       const sp: FilePreview = { name: defaultName, size: blob.size, type: coverFile.type };
       const cat = getFileCategory(coverFile.type, coverFile.name);
       if (cat === 'image') sp.url = await blobToDataURL(blob);
       else if (cat === 'text') sp.text = await blobToText(blob);
       else if (cat === 'audio' || cat === 'video') sp.url = url;
       setStegoPreview(sp);
+
       showToast('File berhasil disembunyikan!', 'success');
     } catch (err) {
       showToast(`Error: ${(err as Error).message}`, 'error');
@@ -353,14 +365,13 @@ export function App() {
     setEditingComments(new Set());
     setStegoDetected(false);
     setDecryptionDone(false);
+    setShowDecryptSuccess(false);
     setEditingFileNames(new Set());
     setNewPassword('');
     setShowNewPassword(false);
     setPasswordChanged(false);
     setOriginalDecryptPassword('');
     setAllDecryptPreviewsOpen(false);
-    setDecryptView('initial');
-    setActiveFilter('all');
 
     const preview = await buildFilePreview(file);
     setStegoFilePreview(preview);
@@ -393,8 +404,7 @@ export function App() {
       setEditingComments(new Set());
       setEditingFileNames(new Set());
       setDecryptionDone(true);
-      setDecryptView('results');
-      setActiveFilter('all');
+      setShowDecryptSuccess(true);
       setOriginalDecryptPassword(decryptPassword);
       setNewPassword(decryptPassword);
       setPasswordChanged(false);
@@ -423,9 +433,21 @@ export function App() {
 
   const confirmRemoveDecryptedFile = () => {
     setDecryptedFiles((prev) => prev.filter((f) => f.id !== confirmDialog.fileId));
-    setOpenedDecryptPreviews((prev) => { const next = new Set(prev); next.delete(confirmDialog.fileId); return next; });
-    setEditingComments((prev) => { const next = new Set(prev); next.delete(confirmDialog.fileId); return next; });
-    setEditingFileNames((prev) => { const next = new Set(prev); next.delete(confirmDialog.fileId); return next; });
+    setOpenedDecryptPreviews((prev) => {
+      const next = new Set(prev);
+      next.delete(confirmDialog.fileId);
+      return next;
+    });
+    setEditingComments((prev) => {
+      const next = new Set(prev);
+      next.delete(confirmDialog.fileId);
+      return next;
+    });
+    setEditingFileNames((prev) => {
+      const next = new Set(prev);
+      next.delete(confirmDialog.fileId);
+      return next;
+    });
     setModified(true);
     setConfirmDialog({ open: false, fileId: '', fileName: '' });
     showToast('File berhasil dihapus.', 'info');
@@ -547,31 +569,6 @@ export function App() {
     setLightbox({ open: false, src: '', alt: '' });
   };
 
-  const handleBackToInitial = () => {
-    setDecryptView('initial');
-    setDecryptionDone(false);
-    setDecryptedFiles([]);
-    setModified(false);
-    setDecryptPassword('');
-    setShowDecryptPassword(false);
-    setFilePreviews({});
-    setOpenedDecryptPreviews(new Set());
-    setEditingComments(new Set());
-    setEditingFileNames(new Set());
-    setNewPassword('');
-    setShowNewPassword(false);
-    setPasswordChanged(false);
-    setOriginalDecryptPassword('');
-    setAllDecryptPreviewsOpen(false);
-    setActiveFilter('all');
-    setStegoFile(null);
-    setStegoFilePreview(null);
-    setStegoBuffer(null);
-    setStegoDetected(false);
-    setNeedsPassword(false);
-    if (stegoInputRef.current) stegoInputRef.current.value = '';
-  };
-
   const renderPreview = (preview: FilePreview, clickableImage = false) => {
     const cat = getFileCategory(preview.type, preview.name);
     if (cat === 'image' && preview.url) {
@@ -668,14 +665,13 @@ export function App() {
     setEditingComments(new Set());
     setStegoDetected(false);
     setDecryptionDone(false);
+    setShowDecryptSuccess(false);
     setEditingFileNames(new Set());
     setNewPassword('');
     setShowNewPassword(false);
     setPasswordChanged(false);
     setOriginalDecryptPassword('');
     setAllDecryptPreviewsOpen(false);
-    setDecryptView('initial');
-    setActiveFilter('all');
     if (stegoInputRef.current) stegoInputRef.current.value = '';
   };
 
@@ -686,10 +682,17 @@ export function App() {
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 animate-overlayIn">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={closeLightbox} />
           <div className="relative max-w-[95vw] max-h-[95vh] animate-scaleIn">
-            <button onClick={closeLightbox} className="absolute -top-3 -right-3 z-10 w-10 h-10 rounded-full bg-white shadow-xl flex items-center justify-center hover:bg-red-50 text-slate-500 hover:text-red-500 transition-all cursor-pointer">
+            <button
+              onClick={closeLightbox}
+              className="absolute -top-3 -right-3 z-10 w-10 h-10 rounded-full bg-white shadow-xl flex items-center justify-center hover:bg-red-50 text-slate-500 hover:text-red-500 transition-all cursor-pointer"
+            >
               <X className="w-5 h-5" />
             </button>
-            <img src={lightbox.src} alt={lightbox.alt} className="max-w-[95vw] max-h-[90vh] object-contain rounded-2xl shadow-2xl" />
+            <img
+              src={lightbox.src}
+              alt={lightbox.alt}
+              className="max-w-[95vw] max-h-[90vh] object-contain rounded-2xl shadow-2xl"
+            />
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent rounded-b-2xl p-4">
               <p className="text-white text-sm font-semibold truncate">{lightbox.alt}</p>
             </div>
@@ -715,8 +718,18 @@ export function App() {
               <p className="text-sm text-slate-700 font-medium truncate">{confirmDialog.fileName}</p>
             </div>
             <div className="flex gap-3">
-              <button onClick={cancelRemoveDecryptedFile} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors active:scale-[0.98] cursor-pointer">Batal</button>
-              <button onClick={confirmRemoveDecryptedFile} className="flex-1 py-2.5 rounded-xl bg-red-500 text-sm font-semibold text-white hover:bg-red-600 transition-colors active:scale-[0.98] cursor-pointer">Ya, Hapus</button>
+              <button
+                onClick={cancelRemoveDecryptedFile}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors active:scale-[0.98] cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                onClick={confirmRemoveDecryptedFile}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-sm font-semibold text-white hover:bg-red-600 transition-colors active:scale-[0.98] cursor-pointer"
+              >
+                Ya, Hapus
+              </button>
             </div>
           </div>
         </div>
@@ -753,11 +766,14 @@ export function App() {
               <p className="text-[11px] text-slate-400 leading-tight hidden sm:block">Sembunyikan File</p>
             </div>
           </div>
+
           <div className="flex bg-slate-100 rounded-xl p-1">
             <button
               onClick={() => setActiveTab('embed')}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer
-                ${activeTab === 'embed' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                ${activeTab === 'embed'
+                  ? 'bg-white text-orange-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'}`}
             >
               <LockKeyhole className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Sembunyikan</span>
@@ -766,7 +782,9 @@ export function App() {
             <button
               onClick={() => setActiveTab('decrypt')}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer
-                ${activeTab === 'decrypt' ? 'bg-white text-violet-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                ${activeTab === 'decrypt'
+                  ? 'bg-white text-violet-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'}`}
             >
               <Unlock className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Dekripsi</span>
@@ -797,6 +815,7 @@ export function App() {
                     <h3 className="text-sm font-bold text-slate-700">File Cover</h3>
                   </div>
                   <input ref={coverInputRef} type="file" className="hidden" onChange={handleCoverSelect} />
+
                   {!coverFile ? (
                     <button
                       onClick={() => coverInputRef.current?.click()}
@@ -821,7 +840,11 @@ export function App() {
                           <p className="text-xs text-slate-400">{formatFileSize(coverFile.size)}</p>
                         </div>
                         <button
-                          onClick={() => { setCoverFile(null); setCoverPreview(null); setStegoResult(null); setStegoPreview(null); setStegoOutputName(''); setEditingStegoName(false); if (coverInputRef.current) coverInputRef.current.value = ''; }}
+                          onClick={() => {
+                            setCoverFile(null); setCoverPreview(null); setStegoResult(null); setStegoPreview(null);
+                            setStegoOutputName(''); setEditingStegoName(false);
+                            if (coverInputRef.current) coverInputRef.current.value = '';
+                          }}
                           className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all shrink-0 cursor-pointer"
                         >
                           <X className="w-4 h-4" />
@@ -844,7 +867,10 @@ export function App() {
                     </div>
                     <input ref={secretInputRef} type="file" multiple className="hidden" onChange={handleSecretFilesSelect} />
                     {secretFiles.length > 0 && (
-                      <button onClick={() => secretInputRef.current?.click()} className="flex items-center gap-1 text-xs font-semibold text-orange-500 hover:text-orange-600 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded-lg transition-all cursor-pointer">
+                      <button
+                        onClick={() => secretInputRef.current?.click()}
+                        className="flex items-center gap-1 text-xs font-semibold text-orange-500 hover:text-orange-600 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
+                      >
                         <Plus className="w-3.5 h-3.5" />Tambah
                       </button>
                     )}
@@ -881,35 +907,102 @@ export function App() {
                               <div className="min-w-0 flex-1">
                                 {isEditingName ? (
                                   <div className="flex items-center gap-1.5">
-                                    <input type="text" value={embedFileNames[index] ?? file.name} onChange={(e) => { setEmbedFileNames((prev) => ({ ...prev, [index]: e.target.value })); setStegoResult(null); setStegoPreview(null); setStegoOutputName(''); setEditingStegoName(false); }} className="flex-1 min-w-0 bg-white border border-orange-300 rounded-lg px-2.5 py-1 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-orange-100 outline-none transition-all" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') toggleEditEmbedFileName(index); }} />
-                                    <button onClick={() => toggleEditEmbedFileName(index)} className="p-1.5 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 transition-all cursor-pointer shrink-0"><Check className="w-3.5 h-3.5" /></button>
+                                    <input
+                                      type="text"
+                                      value={embedFileNames[index] ?? file.name}
+                                      onChange={(e) => {
+                                        setEmbedFileNames((prev) => ({ ...prev, [index]: e.target.value }));
+                                        setStegoResult(null);
+                                        setStegoPreview(null);
+                                        setStegoOutputName('');
+                                        setEditingStegoName(false);
+                                      }}
+                                      className="flex-1 min-w-0 bg-white border border-orange-300 rounded-lg px-2.5 py-1 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') toggleEditEmbedFileName(index);
+                                      }}
+                                    />
+                                    <button
+                                      onClick={() => toggleEditEmbedFileName(index)}
+                                      className="p-1.5 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 transition-all cursor-pointer shrink-0"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-1.5 group/name">
                                     <p className="text-sm font-medium text-slate-700 truncate">{displayName}</p>
-                                    <button onClick={() => toggleEditEmbedFileName(index)} className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-orange-50 text-slate-400 hover:text-orange-500 transition-all cursor-pointer shrink-0" title="Ubah nama file"><Edit3 className="w-3 h-3" /></button>
+                                    <button
+                                      onClick={() => toggleEditEmbedFileName(index)}
+                                      className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-orange-50 text-slate-400 hover:text-orange-500 transition-all cursor-pointer shrink-0"
+                                      title="Ubah nama file"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                    </button>
                                   </div>
                                 )}
                                 <div className="flex items-center gap-2">
                                   <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
-                                  {comment && <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md"><MessageSquare className="w-2.5 h-2.5" />Komentar</span>}
+                                  {comment && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md">
+                                      <MessageSquare className="w-2.5 h-2.5" />
+                                      Komentar
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
-                                <button onClick={() => toggleEmbedComment(index)} className={`p-1.5 rounded-lg transition-all cursor-pointer ${isCommentOpen ? 'bg-amber-50 text-amber-500' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'}`} title={isCommentOpen ? 'Tutup komentar' : 'Tambah komentar'}><MessageSquarePlus className="w-4 h-4" /></button>
-                                {hasPreviewable && <button onClick={() => openEmbedPreview(index)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer" title={isOpen ? 'Tutup preview' : 'Lihat preview'}>{isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</button>}
-                                <button onClick={() => removeSecretFile(index)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer"><X className="w-4 h-4" /></button>
+                                <button
+                                  onClick={() => toggleEmbedComment(index)}
+                                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                    isCommentOpen
+                                      ? 'bg-amber-50 text-amber-500'
+                                      : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
+                                  }`}
+                                  title={isCommentOpen ? 'Tutup komentar' : 'Tambah komentar'}
+                                >
+                                  <MessageSquarePlus className="w-4 h-4" />
+                                </button>
+                                {hasPreviewable && (
+                                  <button
+                                    onClick={() => openEmbedPreview(index)}
+                                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+                                    title={isOpen ? 'Tutup preview' : 'Lihat preview'}
+                                  >
+                                    {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                  </button>
+                                )}
+                                <button onClick={() => removeSecretFile(index)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer">
+                                  <X className="w-4 h-4" />
+                                </button>
                               </div>
                             </div>
                             {isCommentOpen && (
                               <div className="px-3 pb-3 animate-slideDown">
                                 <div className="relative">
                                   <MessageSquare className="absolute left-3 top-3 w-3.5 h-3.5 text-slate-400" />
-                                  <textarea value={comment} onChange={(e) => { setEmbedComments((prev) => ({ ...prev, [index]: e.target.value })); setStegoResult(null); setStegoPreview(null); setStegoOutputName(''); setEditingStegoName(false); }} placeholder="Tambahkan komentar untuk file ini..." rows={2} className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-700 placeholder-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-100 transition-all resize-none outline-none" />
+                                  <textarea
+                                    value={comment}
+                                    onChange={(e) => {
+                                      setEmbedComments((prev) => ({ ...prev, [index]: e.target.value }));
+                                      setStegoResult(null);
+                                      setStegoPreview(null);
+                                      setStegoOutputName('');
+                                      setEditingStegoName(false);
+                                    }}
+                                    placeholder="Tambahkan komentar untuk file ini..."
+                                    rows={2}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-700 placeholder-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-100 transition-all resize-none outline-none"
+                                  />
                                 </div>
                               </div>
                             )}
-                            {isOpen && secretPreviews[index] && <div className="px-3 pb-3 animate-slideDown">{renderPreview(secretPreviews[index])}</div>}
+                            {isOpen && secretPreviews[index] && (
+                              <div className="px-3 pb-3 animate-slideDown">
+                                {renderPreview(secretPreviews[index])}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -928,8 +1021,17 @@ export function App() {
                   </div>
                   <div className="relative">
                     <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input type={showEmbedPassword ? 'text' : 'password'} value={embedPassword} onChange={(e) => setEmbedPassword(e.target.value)} placeholder="Masukkan password..." className="focus-ring w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-orange-300 transition-all" />
-                    <button onClick={() => setShowEmbedPassword(!showEmbedPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
+                    <input
+                      type={showEmbedPassword ? 'text' : 'password'}
+                      value={embedPassword}
+                      onChange={(e) => setEmbedPassword(e.target.value)}
+                      placeholder="Masukkan password..."
+                      className="focus-ring w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-orange-300 transition-all"
+                    />
+                    <button
+                      onClick={() => setShowEmbedPassword(!showEmbedPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+                    >
                       {showEmbedPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
@@ -941,7 +1043,11 @@ export function App() {
                   disabled={embedding || !coverFile || secretFiles.length === 0}
                   className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3.5 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-orange-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
                 >
-                  {embedding ? <><Loader2 className="w-4 h-4 animate-spin" />Menyembunyikan...</> : <><LockKeyhole className="w-4 h-4" />Sembunyikan File</>}
+                  {embedding ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" />Menyembunyikan...</>
+                  ) : (
+                    <><LockKeyhole className="w-4 h-4" />Sembunyikan File</>
+                  )}
                 </button>
               </div>
 
@@ -950,39 +1056,72 @@ export function App() {
                 {stegoResult ? (
                   <section className="bg-white rounded-2xl border-2 border-emerald-200 p-5 animate-fadeUp sticky top-20">
                     <div className="flex items-center gap-2 mb-4">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center"><CheckCircle className="w-4 h-4 text-emerald-500" /></div>
+                      <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center">
+                        <CheckCircle className="w-4 h-4 text-emerald-500" />
+                      </div>
                       <div>
                         <h3 className="text-sm font-bold text-emerald-700">Berhasil!</h3>
                         <p className="text-xs text-emerald-500">File siap diunduh</p>
                       </div>
                     </div>
+
                     {stegoPreview && renderPreview(stegoPreview, true)}
+
                     <div className="bg-slate-50 rounded-xl p-3 mt-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-500 shrink-0"><Package className="w-5 h-5" /></div>
+                        <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-500 shrink-0">
+                          <Package className="w-5 h-5" />
+                        </div>
                         <div className="min-w-0 flex-1">
                           {editingStegoName ? (
                             <div className="flex items-center gap-1.5">
-                              <input type="text" value={stegoOutputName} onChange={(e) => setStegoOutputName(e.target.value)} className="flex-1 min-w-0 bg-white border border-emerald-300 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-emerald-100 outline-none transition-all" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') setEditingStegoName(false); }} />
-                              <button onClick={() => setEditingStegoName(false)} className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-all cursor-pointer shrink-0"><Check className="w-3.5 h-3.5" /></button>
+                              <input
+                                type="text"
+                                value={stegoOutputName}
+                                onChange={(e) => setStegoOutputName(e.target.value)}
+                                className="flex-1 min-w-0 bg-white border border-emerald-300 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-emerald-100 outline-none transition-all"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') setEditingStegoName(false);
+                                }}
+                              />
+                              <button
+                                onClick={() => setEditingStegoName(false)}
+                                className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-all cursor-pointer shrink-0"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           ) : (
                             <div className="flex items-center gap-1.5 group">
                               <p className="text-sm font-semibold text-slate-700 truncate">{stegoOutputName}</p>
-                              <button onClick={() => setEditingStegoName(true)} className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-emerald-100 text-slate-400 hover:text-emerald-600 transition-all cursor-pointer shrink-0" title="Ubah nama file"><Edit3 className="w-3 h-3" /></button>
+                              <button
+                                onClick={() => setEditingStegoName(true)}
+                                className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-emerald-100 text-slate-400 hover:text-emerald-600 transition-all cursor-pointer shrink-0"
+                                title="Ubah nama file"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
                             </div>
                           )}
                           {stegoPreview && <p className="text-xs text-slate-400 mt-0.5">{formatFileSize(stegoPreview.size)}</p>}
                         </div>
                       </div>
                     </div>
-                    <a href={stegoResult.url} download={stegoOutputName || `stego_file.${stegoResult.extension}`} className="mt-4 w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-sm font-bold transition-colors active:scale-[0.98]">
+
+                    <a
+                      href={stegoResult.url}
+                      download={stegoOutputName || `stego_file.${stegoResult.extension}`}
+                      className="mt-4 w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-sm font-bold transition-colors active:scale-[0.98]"
+                    >
                       <Download className="w-4 h-4" />Unduh File
                     </a>
                   </section>
                 ) : (
                   <div className="bg-white rounded-2xl border border-slate-200 p-8 flex flex-col items-center justify-center text-center min-h-[280px] sticky top-20">
-                    <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mb-4"><Package className="w-7 h-7 text-slate-300" /></div>
+                    <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mb-4">
+                      <Package className="w-7 h-7 text-slate-300" />
+                    </div>
                     <p className="text-sm font-semibold text-slate-400">Hasil akan muncul di sini</p>
                     <p className="text-xs text-slate-300 mt-1">Pilih file dan klik Sembunyikan</p>
                   </div>
@@ -995,318 +1134,130 @@ export function App() {
         {/* ============ DECRYPT TAB ============ */}
         {activeTab === 'decrypt' && (
           <div className="animate-fadeUp">
-            {/* ---- INITIAL VIEW: Select file & decrypt ---- */}
-            {decryptView === 'initial' && (
-              <>
-                <div className="mb-6">
-                  <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">Dekripsi File</h2>
-                  <p className="text-sm text-slate-500 mt-1">Ekstrak file tersembunyi dari file stego Anda.</p>
-                </div>
+            <div className="mb-6">
+              <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">Dekripsi File</h2>
+              <p className="text-sm text-slate-500 mt-1">Ekstrak file tersembunyi dari file stego Anda.</p>
+            </div>
 
-                <div className="max-w-xl mx-auto space-y-5">
-                  {/* Stego file selection */}
-                  <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
-                    <div className="flex items-center gap-2.5 mb-4">
-                      <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">1</div>
-                      <h3 className="text-sm font-bold text-slate-700">File Stego</h3>
-                    </div>
-                    <input ref={stegoInputRef} type="file" className="hidden" onChange={handleStegoSelect} />
-
-                    {!stegoFile ? (
-                      <button
-                        onClick={() => stegoInputRef.current?.click()}
-                        className="w-full border-2 border-dashed border-slate-200 rounded-xl py-10 flex flex-col items-center gap-3 hover:border-violet-300 hover:bg-violet-50/30 transition-all group cursor-pointer"
-                      >
-                        <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center group-hover:bg-violet-100 transition-colors">
-                          <Upload className="w-6 h-6 text-slate-400 group-hover:text-violet-500 transition-colors" />
-                        </div>
-                        <div className="text-center">
-                          <p className="text-sm font-semibold text-slate-500 group-hover:text-slate-700">Pilih file stego</p>
-                          <p className="text-xs text-slate-400 mt-1">File yang berisi data tersembunyi</p>
-                        </div>
-                      </button>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-3 bg-slate-50 rounded-xl p-3">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getFileIconColor(stegoFile.type, stegoFile.name)}`}>
-                            {getFileIconEl(stegoFile.type, stegoFile.name)}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold text-slate-700 truncate">{stegoFile.name}</p>
-                            <p className="text-xs text-slate-400">{formatFileSize(stegoFile.size)}</p>
-                          </div>
-                          <button onClick={clearStegoState} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all shrink-0 cursor-pointer">
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                        {stegoFilePreview && renderPreview(stegoFilePreview, true)}
-                        {stegoDetected && (
-                          <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl animate-fadeIn">
-                            <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                            <span className="text-xs font-semibold text-emerald-700">Data tersembunyi terdeteksi</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </section>
-
-                  {/* Password input */}
-                  {stegoFile && needsPassword && (
-                    <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
-                      <div className="flex items-center gap-2.5 mb-3">
-                        <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">2</div>
-                        <h3 className="text-sm font-bold text-slate-700">Password</h3>
-                        <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-wide">Diperlukan</span>
-                      </div>
-                      <div className="relative">
-                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input type={showDecryptPassword ? 'text' : 'password'} value={decryptPassword} onChange={(e) => setDecryptPassword(e.target.value)} placeholder="Masukkan password..." className="focus-ring-accent w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-violet-300 transition-all" />
-                        <button onClick={() => setShowDecryptPassword(!showDecryptPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
-                          {showDecryptPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </section>
-                  )}
-
-                  {/* Decrypt button */}
-                  {stegoFile && stegoDetected && (
-                    <button
-                      onClick={handleDecrypt}
-                      disabled={decrypting || (needsPassword && !decryptPassword)}
-                      className="w-full bg-gradient-to-r from-violet-500 to-purple-500 text-white py-3.5 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-violet-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
-                    >
-                      {decrypting ? <><Loader2 className="w-4 h-4 animate-spin" />Mendekripsi...</> : <><Unlock className="w-4 h-4" />Dekripsi</>}
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* ---- RESULTS VIEW: Show decrypted files ---- */}
-            {decryptView === 'results' && (
-              <>
-                {/* Header with back button */}
-                <div className="mb-6 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={handleBackToInitial}
-                      className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-all cursor-pointer shrink-0"
-                      title="Kembali"
-                    >
-                      <ArrowLeft className="w-4 h-4" />
-                    </button>
-                    <div>
-                      <h2 className="text-xl sm:text-2xl font-bold text-slate-800">Hasil Dekripsi</h2>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <p className="text-sm text-slate-500">{decryptedFiles.length} file ditemukan</p>
-                        {stegoFile && (
-                          <span className="text-xs text-slate-400">dari <span className="font-medium text-slate-500">{stegoFile.name}</span></span>
-                        )}
-                      </div>
-                    </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              {/* Left column: inputs */}
+              <div className="lg:col-span-1 space-y-5">
+                <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
+                  <div className="flex items-center gap-2.5 mb-4">
+                    <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">1</div>
+                    <h3 className="text-sm font-bold text-slate-700">File Stego</h3>
                   </div>
-                  <button
-                    onClick={() => setDecryptView('settings')}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 text-xs font-semibold transition-all cursor-pointer"
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Pengaturan</span>
-                  </button>
-                </div>
+                  <input ref={stegoInputRef} type="file" className="hidden" onChange={handleStegoSelect} />
 
-                {/* Category filter tabs */}
-                <div className="mb-5 overflow-x-auto scrollbar-hide">
-                  <div className="flex items-center gap-2 min-w-max pb-1">
-                    {filterConfig.map((f) => {
-                      const count = categoryCounts[f.key];
-                      if (f.key !== 'all' && count === 0) return null;
-                      const isActive = activeFilter === f.key;
-                      return (
+                  {!stegoFile ? (
+                    <button
+                      onClick={() => stegoInputRef.current?.click()}
+                      className="w-full border-2 border-dashed border-slate-200 rounded-xl py-10 flex flex-col items-center gap-3 hover:border-violet-300 hover:bg-violet-50/30 transition-all group cursor-pointer"
+                    >
+                      <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center group-hover:bg-violet-100 transition-colors">
+                        <Upload className="w-6 h-6 text-slate-400 group-hover:text-violet-500 transition-colors" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-semibold text-slate-500 group-hover:text-slate-700">Pilih file stego</p>
+                        <p className="text-xs text-slate-400 mt-1">File yang berisi data tersembunyi</p>
+                      </div>
+                    </button>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3 bg-slate-50 rounded-xl p-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getFileIconColor(stegoFile.type, stegoFile.name)}`}>
+                          {getFileIconEl(stegoFile.type, stegoFile.name)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-slate-700 truncate">{stegoFile.name}</p>
+                          <p className="text-xs text-slate-400">{formatFileSize(stegoFile.size)}</p>
+                        </div>
                         <button
-                          key={f.key}
-                          onClick={() => {
-                            setActiveFilter(f.key);
-                            setOpenedDecryptPreviews(new Set());
-                            setAllDecryptPreviewsOpen(false);
-                          }}
-                          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${isActive ? f.activeColor : f.color}`}
+                          onClick={clearStegoState}
+                          className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all shrink-0 cursor-pointer"
                         >
-                          {f.icon}
-                          <span>{f.label}</span>
-                          <span className={`ml-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md ${isActive ? 'bg-white/50' : 'bg-black/5'}`}>
-                            {count}
-                          </span>
+                          <X className="w-4 h-4" />
                         </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Actions bar */}
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={toggleAllDecryptPreviews}
-                      className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all cursor-pointer ${
-                        allDecryptPreviewsOpen ? 'text-violet-600 bg-violet-100 hover:bg-violet-200' : 'text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100'
-                      }`}
-                    >
-                      {allDecryptPreviewsOpen ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      <span className="hidden sm:inline">{allDecryptPreviewsOpen ? 'Tutup Semua' : 'Buka Semua'}</span>
-                    </button>
-                    <input ref={addFileInputRef} type="file" multiple className="hidden" onChange={handleAddFileToDecrypted} />
-                    <button
-                      onClick={() => addFileInputRef.current?.click()}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-violet-500 hover:text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-2 rounded-lg transition-all cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Tambah File</span>
-                    </button>
-                  </div>
-                  <button
-                    onClick={downloadAllFiles}
-                    disabled={downloadingAll}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-lg transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    {downloadingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <DownloadCloud className="w-3.5 h-3.5" />}
-                    <span className="hidden sm:inline">Unduh Semua</span>
-                  </button>
-                </div>
-
-                {/* File list */}
-                {filteredDecryptedFiles.length === 0 ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-8 flex flex-col items-center justify-center text-center">
-                    <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center mb-3">
-                      <FolderOpen className="w-6 h-6 text-slate-300" />
-                    </div>
-                    <p className="text-sm font-semibold text-slate-400">Tidak ada file dalam kategori ini</p>
-                    <p className="text-xs text-slate-300 mt-1">Coba pilih kategori lain</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {filteredDecryptedFiles.map((file) => {
-                      const cat = getFileCategory(file.type, file.name);
-                      const hasMediaPreview = cat !== 'other' && filePreviews[file.id];
-                      const hasComment = !!(file.comment);
-                      const isOpen = openedDecryptPreviews.has(file.id);
-                      const isEditing = editingComments.has(file.id);
-                      const isEditingName = editingFileNames.has(file.id);
-                      return (
-                        <div key={file.id} className="bg-white rounded-xl overflow-hidden border border-slate-200 file-item card-hover">
-                          {/* File info row */}
-                          <div className="flex items-center gap-3 p-3.5">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${getFileIconColor(file.type, file.name)}`}>
-                              {getFileIconEl(file.type, file.name)}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              {isEditingName ? (
-                                <div className="flex items-center gap-1.5">
-                                  <input type="text" value={file.name} onChange={(e) => updateDecryptedFileName(file.id, e.target.value)} className="flex-1 min-w-0 bg-white border border-violet-300 rounded-lg px-2.5 py-1 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-violet-100 outline-none transition-all" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') toggleEditFileName(file.id); }} />
-                                  <button onClick={() => toggleEditFileName(file.id)} className="p-1.5 rounded-lg bg-violet-100 text-violet-600 hover:bg-violet-200 transition-all cursor-pointer shrink-0"><Check className="w-3.5 h-3.5" /></button>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-1.5 group/name">
-                                  <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
-                                  <button onClick={() => toggleEditFileName(file.id)} className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-violet-50 text-slate-400 hover:text-violet-500 transition-all cursor-pointer shrink-0" title="Ubah nama file"><Edit3 className="w-3 h-3" /></button>
-                                </div>
-                              )}
-                              <div className="flex items-center gap-2">
-                                <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
-                                {!isOpen && hasComment && (
-                                  <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md">
-                                    <MessageSquare className="w-2.5 h-2.5" />Komentar
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-0.5 shrink-0">
-                              <button
-                                onClick={() => openDecryptPreview(file.id)}
-                                className={`p-2 rounded-lg transition-all cursor-pointer ${isOpen ? 'bg-violet-50 text-violet-500' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'}`}
-                                title={isOpen ? 'Tutup detail' : 'Lihat detail'}
-                              >
-                                {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                              </button>
-                              <button onClick={() => downloadFile(file)} className="p-2 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-500 transition-all cursor-pointer" title="Unduh"><Download className="w-4 h-4" /></button>
-                              <button onClick={() => requestRemoveDecryptedFile(file.id, file.name)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer" title="Hapus"><Trash2 className="w-4 h-4" /></button>
-                            </div>
-                          </div>
-
-                          {/* Expandable content */}
-                          {isOpen && (
-                            <div className="px-3.5 pb-3.5 space-y-3 animate-slideDown">
-                              {hasMediaPreview && renderDecryptPreview(file.id, file.type, file.name)}
-                              <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <div className="flex items-center gap-1.5">
-                                    <MessageSquare className="w-3 h-3 text-amber-500" />
-                                    <span className="text-[11px] font-semibold text-amber-600 uppercase tracking-wide">Komentar</span>
-                                  </div>
-                                  <button onClick={() => toggleEditComment(file.id)} className={`text-[11px] font-semibold px-2 py-0.5 rounded-md transition-all cursor-pointer ${isEditing ? 'text-amber-700 bg-amber-200 hover:bg-amber-300' : 'text-amber-500 hover:text-amber-600 hover:bg-amber-100'}`}>
-                                    {isEditing ? 'Selesai' : 'Edit'}
-                                  </button>
-                                </div>
-                                {isEditing ? (
-                                  <textarea value={file.comment || ''} onChange={(e) => updateDecryptedFileComment(file.id, e.target.value)} placeholder="Tulis komentar..." rows={2} className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-xs text-slate-700 placeholder-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all resize-none outline-none" autoFocus />
-                                ) : (
-                                  <p className={`text-xs leading-relaxed whitespace-pre-wrap ${file.comment ? 'text-slate-600' : 'text-slate-400 italic'}`}>
-                                    {file.comment || 'Tidak ada komentar.'}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          )}
+                      </div>
+                      {stegoFilePreview && renderPreview(stegoFilePreview, true)}
+                      {stegoDetected && (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl animate-fadeIn">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span className="text-xs font-semibold text-emerald-700">Data tersembunyi terdeteksi</span>
                         </div>
-                      );
-                    })}
-                  </div>
+                      )}
+                    </div>
+                  )}
+                </section>
+
+                {/* Password - shown before decryption if needed */}
+                {stegoFile && needsPassword && !decryptionDone && (
+                  <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">2</div>
+                      <h3 className="text-sm font-bold text-slate-700">Password</h3>
+                      <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-wide">Diperlukan</span>
+                    </div>
+                    <div className="relative">
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type={showDecryptPassword ? 'text' : 'password'}
+                        value={decryptPassword}
+                        onChange={(e) => setDecryptPassword(e.target.value)}
+                        placeholder="Masukkan password..."
+                        className="focus-ring-accent w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-violet-300 transition-all"
+                      />
+                      <button
+                        onClick={() => setShowDecryptPassword(!showDecryptPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+                      >
+                        {showDecryptPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </section>
                 )}
 
-                {/* Bottom action: update cover */}
-                {modified && (
-                  <div className="mt-5 animate-fadeIn">
-                    <button
-                      onClick={handleUpdateStego}
-                      disabled={updating}
-                      className="w-full bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
-                    >
-                      {updating ? <><Loader2 className="w-4 h-4 animate-spin" />Memperbarui...</> : <><RefreshCw className="w-4 h-4" />Unduh Cover yang Diperbarui</>}
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* ---- SETTINGS VIEW ---- */}
-            {decryptView === 'settings' && (
-              <>
-                {/* Header with back button */}
-                <div className="mb-6 flex items-center gap-3">
+                {/* Decrypt button - hidden after successful decryption */}
+                {stegoFile && stegoDetected && !decryptionDone && (
                   <button
-                    onClick={() => setDecryptView('results')}
-                    className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-all cursor-pointer shrink-0"
-                    title="Kembali ke hasil"
+                    onClick={handleDecrypt}
+                    disabled={decrypting || (needsPassword && !decryptPassword)}
+                    className="w-full bg-gradient-to-r from-violet-500 to-purple-500 text-white py-3.5 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-violet-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
                   >
-                    <ArrowLeft className="w-4 h-4" />
+                    {decrypting ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" />Mendekripsi...</>
+                    ) : (
+                      <><Unlock className="w-4 h-4" />Dekripsi</>
+                    )}
                   </button>
-                  <div>
-                    <h2 className="text-xl sm:text-2xl font-bold text-slate-800">Pengaturan</h2>
-                    <p className="text-sm text-slate-500 mt-0.5">Kelola password dan nama file</p>
-                  </div>
-                </div>
+                )}
 
-                <div className="max-w-xl mx-auto space-y-5">
-                  {/* Password section */}
-                  <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
-                    <div className="flex items-center gap-2.5 mb-4">
-                      <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center">
-                        <KeyRound className="w-4 h-4 text-amber-500" />
+                {/* Decryption success - auto hides after 3 seconds */}
+                {showDecryptSuccess && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 animate-fadeUp transition-all">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
                       </div>
                       <div>
-                        <h3 className="text-sm font-bold text-slate-700">Ubah Password</h3>
-                        <p className="text-xs text-slate-400">Ubah password enkripsi file cover</p>
+                        <p className="text-sm font-bold text-emerald-700">Dekripsi Berhasil</p>
+                        <p className="text-xs text-emerald-500">{decryptedFiles.length} file diekstrak</p>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* Update password section - shown after decryption */}
+                {decryptionDone && (
+                  <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-500 flex items-center justify-center">
+                        <KeyRound className="w-3.5 h-3.5" />
+                      </div>
+                      <h3 className="text-sm font-bold text-slate-700">Ubah Password</h3>
+                      <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wide">Opsional</span>
+                    </div>
+                    <p className="text-xs text-slate-400 mb-3">Ubah password dan unduh file cover dengan password baru.</p>
                     <div className="relative">
                       <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <input
@@ -1326,131 +1277,237 @@ export function App() {
                         {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
-                    {originalDecryptPassword && (
-                      <p className="mt-2 text-[11px] text-slate-400">
-                        Password saat ini: <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{'•'.repeat(originalDecryptPassword.length)}</span>
-                      </p>
-                    )}
+
                     {passwordChanged && (
                       <button
                         onClick={handleUpdatePassword}
                         disabled={updatingPassword}
-                        className="mt-4 w-full bg-gradient-to-r from-amber-500 to-orange-500 text-white py-3 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-amber-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer animate-fadeIn"
+                        className="mt-3 w-full bg-gradient-to-r from-amber-500 to-orange-500 text-white py-3 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-amber-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer animate-fadeIn"
                       >
-                        {updatingPassword ? <><Loader2 className="w-4 h-4 animate-spin" />Memperbarui...</> : <><KeyRound className="w-4 h-4" />Update Password & Unduh</>}
+                        {updatingPassword ? (
+                          <><Loader2 className="w-4 h-4 animate-spin" />Memperbarui Password...</>
+                        ) : (
+                          <><KeyRound className="w-4 h-4" />Update Password & Unduh</>
+                        )}
                       </button>
                     )}
                   </section>
+                )}
+              </div>
 
-                  {/* Rename files section */}
-                  <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
-                    <div className="flex items-center gap-2.5 mb-4">
-                      <div className="w-8 h-8 rounded-xl bg-violet-50 flex items-center justify-center">
-                        <Edit3 className="w-4 h-4 text-violet-500" />
+              {/* Right column: results */}
+              <div className="lg:col-span-2">
+                {decryptedFiles.length > 0 ? (
+                  <section className="bg-white rounded-2xl border-2 border-emerald-200 p-5 animate-fadeUp">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center">
+                          <CheckCircle className="w-4 h-4 text-emerald-500" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-emerald-700">Hasil Dekripsi</h3>
+                          <p className="text-xs text-emerald-500">{decryptedFiles.length} file ditemukan</p>
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-slate-700">Nama File</h3>
-                        <p className="text-xs text-slate-400">Ubah nama file yang tersembunyi</p>
+                      <div className="flex items-center gap-2">
+                        <input ref={addFileInputRef} type="file" multiple className="hidden" onChange={handleAddFileToDecrypted} />
+                        <button
+                          onClick={toggleAllDecryptPreviews}
+                          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all cursor-pointer ${
+                            allDecryptPreviewsOpen
+                              ? 'text-violet-600 bg-violet-100 hover:bg-violet-200'
+                              : 'text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100'
+                          }`}
+                          title={allDecryptPreviewsOpen ? 'Tutup semua preview' : 'Buka semua preview'}
+                        >
+                          {allDecryptPreviewsOpen ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          <span className="hidden sm:inline">{allDecryptPreviewsOpen ? 'Tutup Semua' : 'Buka Semua'}</span>
+                        </button>
+                        <button
+                          onClick={() => addFileInputRef.current?.click()}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-violet-500 hover:text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-2 rounded-lg transition-all cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />Tambah File
+                        </button>
                       </div>
                     </div>
 
-                    <div className="space-y-2">
+                    {/* File list */}
+                    <div className="space-y-3">
                       {decryptedFiles.map((file) => {
+                        const cat = getFileCategory(file.type, file.name);
+                        const hasMediaPreview = cat !== 'other' && filePreviews[file.id];
+                        const hasComment = !!(file.comment);
+                        const isOpen = openedDecryptPreviews.has(file.id);
+                        const isEditing = editingComments.has(file.id);
                         const isEditingName = editingFileNames.has(file.id);
                         return (
-                          <div key={file.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${getFileIconColor(file.type, file.name)}`}>
-                              {getFileIconEl(file.type, file.name)}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              {isEditingName ? (
-                                <div className="flex items-center gap-1.5">
-                                  <input
-                                    type="text"
-                                    value={file.name}
-                                    onChange={(e) => updateDecryptedFileName(file.id, e.target.value)}
-                                    className="flex-1 min-w-0 bg-white border border-violet-300 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-violet-100 outline-none transition-all"
-                                    autoFocus
-                                    onKeyDown={(e) => { if (e.key === 'Enter') toggleEditFileName(file.id); }}
-                                  />
-                                  <button
-                                    onClick={() => toggleEditFileName(file.id)}
-                                    className="p-1.5 rounded-lg bg-violet-100 text-violet-600 hover:bg-violet-200 transition-all cursor-pointer shrink-0"
-                                  >
-                                    <Check className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              ) : (
+                          <div key={file.id} className="rounded-xl overflow-hidden border border-slate-100 file-item">
+                            {/* File info row */}
+                            <div className="flex items-center gap-3 p-3">
+                              <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${getFileIconColor(file.type, file.name)}`}>
+                                {getFileIconEl(file.type, file.name)}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                {isEditingName ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="text"
+                                      value={file.name}
+                                      onChange={(e) => updateDecryptedFileName(file.id, e.target.value)}
+                                      className="flex-1 min-w-0 bg-white border border-violet-300 rounded-lg px-2.5 py-1 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-violet-100 outline-none transition-all"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') toggleEditFileName(file.id);
+                                      }}
+                                    />
+                                    <button
+                                      onClick={() => toggleEditFileName(file.id)}
+                                      className="p-1.5 rounded-lg bg-violet-100 text-violet-600 hover:bg-violet-200 transition-all cursor-pointer shrink-0"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 group/name">
+                                    <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
+                                    <button
+                                      onClick={() => toggleEditFileName(file.id)}
+                                      className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-violet-50 text-slate-400 hover:text-violet-500 transition-all cursor-pointer shrink-0"
+                                      title="Ubah nama file"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                )}
                                 <div className="flex items-center gap-2">
-                                  <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
-                                  <button
-                                    onClick={() => toggleEditFileName(file.id)}
-                                    className="p-1 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-500 transition-all cursor-pointer shrink-0"
-                                    title="Ubah nama"
-                                  >
-                                    <Edit3 className="w-3 h-3" />
-                                  </button>
+                                  <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
+                                  {!isOpen && hasComment && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md">
+                                      <MessageSquare className="w-2.5 h-2.5" />
+                                      Komentar
+                                    </span>
+                                  )}
                                 </div>
-                              )}
-                              <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
+                              </div>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <button
+                                  onClick={() => openDecryptPreview(file.id)}
+                                  className={`p-2 rounded-lg transition-all cursor-pointer ${
+                                    isOpen
+                                      ? 'bg-violet-50 text-violet-500'
+                                      : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
+                                  }`}
+                                  title={isOpen ? 'Tutup detail' : 'Lihat detail'}
+                                >
+                                  {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                </button>
+                                <button
+                                  onClick={() => downloadFile(file)}
+                                  className="p-2 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-500 transition-all cursor-pointer"
+                                  title="Unduh"
+                                >
+                                  <Download className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => requestRemoveDecryptedFile(file.id, file.name)}
+                                  className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer"
+                                  title="Hapus"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </div>
+
+                            {/* Expandable content */}
+                            {isOpen && (
+                              <div className="px-3 pb-3 space-y-3 animate-slideDown">
+                                {hasMediaPreview && renderDecryptPreview(file.id, file.type, file.name)}
+
+                                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <MessageSquare className="w-3 h-3 text-amber-500" />
+                                      <span className="text-[11px] font-semibold text-amber-600 uppercase tracking-wide">Komentar</span>
+                                    </div>
+                                    <button
+                                      onClick={() => toggleEditComment(file.id)}
+                                      className={`text-[11px] font-semibold px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                                        isEditing
+                                          ? 'text-amber-700 bg-amber-200 hover:bg-amber-300'
+                                          : 'text-amber-500 hover:text-amber-600 hover:bg-amber-100'
+                                      }`}
+                                    >
+                                      {isEditing ? 'Selesai' : 'Edit'}
+                                    </button>
+                                  </div>
+
+                                  {isEditing ? (
+                                    <textarea
+                                      value={file.comment || ''}
+                                      onChange={(e) => updateDecryptedFileComment(file.id, e.target.value)}
+                                      placeholder="Tulis komentar..."
+                                      rows={2}
+                                      className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-xs text-slate-700 placeholder-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all resize-none outline-none"
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    <p className={`text-xs leading-relaxed whitespace-pre-wrap ${
+                                      file.comment
+                                        ? 'text-slate-600'
+                                        : 'text-slate-400 italic'
+                                    }`}>
+                                      {file.comment || 'Tidak ada komentar.'}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
                     </div>
 
-                    {modified && (
+                    {/* Action buttons */}
+                    <div className="mt-5 pt-5 border-t border-slate-100 space-y-2.5">
                       <button
-                        onClick={handleUpdateStego}
-                        disabled={updating}
-                        className="mt-4 w-full bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 cursor-pointer animate-fadeIn"
+                        onClick={downloadAllFiles}
+                        disabled={downloadingAll}
+                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-md shadow-emerald-200"
                       >
-                        {updating ? <><Loader2 className="w-4 h-4 animate-spin" />Memperbarui...</> : <><RefreshCw className="w-4 h-4" />Simpan & Unduh Cover</>}
+                        {downloadingAll ? (
+                          <><Loader2 className="w-4 h-4 animate-spin" />Mengemas file...</>
+                        ) : (
+                          <><DownloadCloud className="w-4 h-4" />Unduh Semua ({decryptedFiles.length} file)</>
+                        )}
                       </button>
-                    )}
-                  </section>
 
-                  {/* File info */}
-                  {stegoFile && (
-                    <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
-                      <div className="flex items-center gap-2.5 mb-4">
-                        <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center">
-                          <Info className="w-4 h-4 text-slate-500" />
-                        </div>
-                        <div>
-                          <h3 className="text-sm font-bold text-slate-700">Info File Cover</h3>
-                          <p className="text-xs text-slate-400">Detail file stego yang dimuat</p>
-                        </div>
-                      </div>
-                      <div className="bg-slate-50 rounded-xl p-4 space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-slate-400">Nama File</span>
-                          <span className="text-xs font-medium text-slate-700 truncate ml-4 max-w-[200px]">{stegoFile.name}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-slate-400">Ukuran</span>
-                          <span className="text-xs font-medium text-slate-700">{formatFileSize(stegoFile.size)}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-slate-400">Tipe</span>
-                          <span className="text-xs font-medium text-slate-700">{stegoFile.type || 'Unknown'}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-slate-400">File Tersembunyi</span>
-                          <span className="text-xs font-bold text-violet-600">{decryptedFiles.length} file</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-slate-400">Dilindungi Password</span>
-                          <span className={`text-xs font-semibold ${originalDecryptPassword ? 'text-emerald-600' : 'text-slate-400'}`}>
-                            {originalDecryptPassword ? 'Ya' : 'Tidak'}
-                          </span>
-                        </div>
-                      </div>
-                    </section>
-                  )}
-                </div>
-              </>
-            )}
+                      {modified && (
+                        <button
+                          onClick={handleUpdateStego}
+                          disabled={updating}
+                          className="w-full bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 animate-fadeIn active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                        >
+                          {updating ? (
+                            <><Loader2 className="w-4 h-4 animate-spin" />Memperbarui...</>
+                          ) : (
+                            <><RefreshCw className="w-4 h-4" />Unduh Cover yang Diperbarui</>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </section>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-8 flex flex-col items-center justify-center text-center min-h-[320px]">
+                    <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mb-4">
+                      <Unlock className="w-7 h-7 text-slate-300" />
+                    </div>
+                    <p className="text-sm font-semibold text-slate-400">Hasil dekripsi akan muncul di sini</p>
+                    <p className="text-xs text-slate-300 mt-1">Pilih file stego dan klik Dekripsi</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </main>
