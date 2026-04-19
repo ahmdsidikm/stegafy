@@ -1416,7 +1416,7 @@ export function App() {
                         <div className="flex items-center gap-1.5">
                           <ScanFace className="w-3.5 h-3.5 text-emerald-600" />
                           <span className="text-xs font-semibold text-slate-600">Keamanan Ganda — Face Lock</span>
-                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">PRO</span>
+                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">OPSIONAL</span>
                         </div>
                       </div>
 
