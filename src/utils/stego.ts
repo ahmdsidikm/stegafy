@@ -9,6 +9,10 @@ export interface HiddenFile {
 
 export type EncryptionMethod = 'xor' | 'aes';
 
+// Face descriptor stored alongside the payload (128-float32 from face-api.js)
+export const FACE_DESCRIPTOR_LENGTH = 128;
+export const FACE_MATCH_THRESHOLD = 0.50; // Euclidean distance (sedang)
+
 const MAGIC_BYTES = [0x53, 0x54, 0x45, 0x47]; // "STEG"
 const AES_SALT_LENGTH = 32; // Increased for Argon2
 const AES_IV_LENGTH = 12;
@@ -120,6 +124,43 @@ export function secureWipeString(str: string): void {
   } catch {
     // Silently fail — best effort
   }
+}
+
+// ──────────────────────────────────────────────
+// Face Descriptor Helpers
+// ──────────────────────────────────────────────
+
+/**
+ * Serialize a Float32Array face descriptor (128 floats = 512 bytes) to Uint8Array.
+ */
+export function serializeFaceDescriptor(descriptor: Float32Array): Uint8Array {
+  const buf = new Uint8Array(descriptor.buffer.slice(descriptor.byteOffset, descriptor.byteOffset + descriptor.byteLength));
+  return buf;
+}
+
+/**
+ * Deserialize 512 bytes back to a Float32Array face descriptor.
+ */
+export function deserializeFaceDescriptor(bytes: Uint8Array): Float32Array {
+  const copy = new Uint8Array(bytes).buffer;
+  return new Float32Array(copy);
+}
+
+/**
+ * Compute euclidean distance between two face descriptors.
+ * Threshold ~0.5 = sedang (toleran terhadap perubahan cahaya/sudut).
+ */
+export function faceDescriptorDistance(a: Float32Array, b: Float32Array): number {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) {
+    const d = a[i] - b[i];
+    sum += d * d;
+  }
+  return Math.sqrt(sum);
+}
+
+export function isFaceMatch(a: Float32Array, b: Float32Array): boolean {
+  return faceDescriptorDistance(a, b) <= FACE_MATCH_THRESHOLD;
 }
 
 // ──────────────────────────────────────────────
@@ -519,12 +560,24 @@ function deserializeFilesRaw(
 // Steganography Core Functions
 // ──────────────────────────────────────────────
 
+/**
+ * Face descriptor bytes: 128 Float32 = 512 bytes.
+ * Stored AFTER the payload, BEFORE the 9-byte metadata trailer.
+ * Layout (end of file):
+ *   [ cover bytes ][ payload bytes ][ face? (512 B) ][ payloadSize (4B) ][ hasFace (1B) ][ methodFlag (1B) ][ MAGIC (4B) ]
+ * hasFace flag: 0x00 = no face, 0x01 = face present
+ */
+const FACE_BYTES = FACE_DESCRIPTOR_LENGTH * 4; // Float32 = 4 bytes each
+const TRAILER_SIZE_NO_FACE = 10; // 4 (size) + 1 (hasFace) + 1 (method) + 4 (magic)
+const TRAILER_SIZE_WITH_FACE = TRAILER_SIZE_NO_FACE + FACE_BYTES;
+
 export async function embedFiles(
   coverFile: File,
   secretFiles: File[],
   password?: string,
   comments?: Record<number, string>,
-  method?: EncryptionMethod
+  method?: EncryptionMethod,
+  faceDescriptor?: Float32Array
 ): Promise<{ blob: Blob; extension: string }> {
   const coverBuffer = await readFileAsArrayBuffer(coverFile);
 
@@ -587,22 +640,37 @@ export async function embedFiles(
   }
 
   const payloadSize = payloadBytes.length;
-  const totalSize = coverBuffer.byteLength + payloadSize + 9;
+  const hasFace = !!(faceDescriptor && faceDescriptor.length === FACE_DESCRIPTOR_LENGTH);
+  const trailerSize = hasFace ? TRAILER_SIZE_WITH_FACE : TRAILER_SIZE_NO_FACE;
+  const totalSize = coverBuffer.byteLength + payloadSize + trailerSize;
   const combined = new Uint8Array(totalSize);
 
   combined.set(new Uint8Array(coverBuffer), 0);
   combined.set(payloadBytes, coverBuffer.byteLength);
 
-  const metaOffset = coverBuffer.byteLength + payloadSize;
-  combined[metaOffset] = (payloadSize >> 24) & 0xff;
+  let metaOffset = coverBuffer.byteLength + payloadSize;
+
+  // Optionally write face descriptor bytes (512 bytes)
+  if (hasFace && faceDescriptor) {
+    const faceBytes = serializeFaceDescriptor(faceDescriptor);
+    combined.set(faceBytes, metaOffset);
+    metaOffset += FACE_BYTES;
+  }
+
+  // payloadSize (4 bytes)
+  combined[metaOffset]     = (payloadSize >> 24) & 0xff;
   combined[metaOffset + 1] = (payloadSize >> 16) & 0xff;
-  combined[metaOffset + 2] = (payloadSize >> 8) & 0xff;
-  combined[metaOffset + 3] = payloadSize & 0xff;
-  combined[metaOffset + 4] = methodFlag;
-  combined[metaOffset + 5] = MAGIC_BYTES[0];
-  combined[metaOffset + 6] = MAGIC_BYTES[1];
-  combined[metaOffset + 7] = MAGIC_BYTES[2];
-  combined[metaOffset + 8] = MAGIC_BYTES[3];
+  combined[metaOffset + 2] = (payloadSize >> 8)  & 0xff;
+  combined[metaOffset + 3] =  payloadSize        & 0xff;
+  // hasFace flag (1 byte): 0x01 = has face, 0x00 = no face
+  combined[metaOffset + 4] = hasFace ? 0x01 : 0x00;
+  // methodFlag (1 byte)
+  combined[metaOffset + 5] = methodFlag;
+  // MAGIC (4 bytes)
+  combined[metaOffset + 6] = MAGIC_BYTES[0];
+  combined[metaOffset + 7] = MAGIC_BYTES[1];
+  combined[metaOffset + 8] = MAGIC_BYTES[2];
+  combined[metaOffset + 9] = MAGIC_BYTES[3];
 
   const ext = coverFile.name.split('.').pop() || 'bin';
   const blob = new Blob([combined], { type: coverFile.type || 'application/octet-stream' });
@@ -612,60 +680,67 @@ export async function embedFiles(
 
 export function checkForHiddenData(
   buffer: ArrayBuffer
-): { found: boolean; hasPassword: boolean; method: EncryptionMethod | null } {
+): { found: boolean; hasPassword: boolean; hasFace: boolean; method: EncryptionMethod | null } {
   const uint8 = new Uint8Array(buffer);
 
-  if (uint8.length < 9) {
-    return { found: false, hasPassword: false, method: null };
+  if (uint8.length < 10) {
+    return { found: false, hasPassword: false, hasFace: false, method: null };
   }
 
   const magicOffset = uint8.length - 4;
   const hasMagic =
-    uint8[magicOffset] === MAGIC_BYTES[0] &&
+    uint8[magicOffset]     === MAGIC_BYTES[0] &&
     uint8[magicOffset + 1] === MAGIC_BYTES[1] &&
     uint8[magicOffset + 2] === MAGIC_BYTES[2] &&
     uint8[magicOffset + 3] === MAGIC_BYTES[3];
 
   if (!hasMagic) {
-    return { found: false, hasPassword: false, method: null };
+    return { found: false, hasPassword: false, hasFace: false, method: null };
   }
 
-  const methodFlag = uint8[uint8.length - 5];
-  const sizeOffset = uint8.length - 9;
+  // New trailer layout (10 bytes minimum):
+  // [payloadSize(4)][hasFaceFlag(1)][methodFlag(1)][MAGIC(4)]
+  const methodFlag  = uint8[uint8.length - 5];
+  const hasFaceFlag = uint8[uint8.length - 6];
+  const hasFace     = hasFaceFlag === 0x01;
+
+  const sizeOffset = uint8.length - 10;
+  if (sizeOffset < 0) return { found: false, hasPassword: false, hasFace: false, method: null };
+
   const payloadSize =
-    (uint8[sizeOffset] << 24) |
+    (uint8[sizeOffset]     << 24) |
     (uint8[sizeOffset + 1] << 16) |
-    (uint8[sizeOffset + 2] << 8) |
-    uint8[sizeOffset + 3];
+    (uint8[sizeOffset + 2] <<  8) |
+     uint8[sizeOffset + 3];
 
-  if (payloadSize <= 0 || payloadSize > uint8.length - 9) {
-    return { found: false, hasPassword: false, method: null };
+  const trailerSize = hasFace ? TRAILER_SIZE_WITH_FACE : TRAILER_SIZE_NO_FACE;
+  if (payloadSize <= 0 || payloadSize > uint8.length - trailerSize) {
+    return { found: false, hasPassword: false, hasFace: false, method: null };
   }
 
-  if (methodFlag === 0x01) {
-    return { found: true, hasPassword: true, method: 'xor' };
-  }
-  if (methodFlag === 0x02) {
-    return { found: true, hasPassword: true, method: 'aes' };
-  }
+  const hasPassword = methodFlag === 0x01 || methodFlag === 0x02;
+  const method: EncryptionMethod | null =
+    methodFlag === 0x01 ? 'xor' :
+    methodFlag === 0x02 ? 'aes' :
+    null;
 
-  return { found: true, hasPassword: false, method: null };
+  return { found: true, hasPassword, hasFace, method };
 }
 
 export async function extractFiles(
   buffer: ArrayBuffer,
   password?: string,
   method?: EncryptionMethod | null
-): Promise<HiddenFile[]> {
+): Promise<{ files: HiddenFile[]; faceDescriptor: Float32Array | null }> {
   const uint8 = new Uint8Array(buffer);
 
-  if (uint8.length < 9) {
+  if (uint8.length < 10) {
     throw new Error('File terlalu kecil untuk berisi data tersembunyi.');
   }
 
   const magicOffset = uint8.length - 4;
   const hasMagic =
-    uint8[magicOffset] === MAGIC_BYTES[0] &&
+    uint8[magicOffset]     === MAGIC_BYTES[0] &&
     uint8[magicOffset + 1] === MAGIC_BYTES[1] &&
     uint8[magicOffset + 2] === MAGIC_BYTES[2] &&
     uint8[magicOffset + 3] === MAGIC_BYTES[3];
@@ -674,27 +749,41 @@ export async function extractFiles(
     throw new Error('Tidak ditemukan data tersembunyi dalam file ini.');
   }
 
-  const methodFlag = uint8[uint8.length - 5];
-  const sizeOffset = uint8.length - 9;
-  const payloadSize =
-    (uint8[sizeOffset] << 24) |
-    (uint8[sizeOffset + 1] << 16) |
-    (uint8[sizeOffset + 2] << 8) |
-    uint8[sizeOffset + 3];
+  const methodFlag  = uint8[uint8.length - 5];
+  const hasFaceFlag = uint8[uint8.length - 6];
+  const hasFace     = hasFaceFlag === 0x01;
 
-  if (payloadSize <= 0 || payloadSize > uint8.length - 9) {
+  const sizeOffset = uint8.length - 10;
+  const payloadSize =
+    (uint8[sizeOffset]     << 24) |
+    (uint8[sizeOffset + 1] << 16) |
+    (uint8[sizeOffset + 2] <<  8) |
+     uint8[sizeOffset + 3];
+
+  const trailerSize = hasFace ? TRAILER_SIZE_WITH_FACE : TRAILER_SIZE_NO_FACE;
+  if (payloadSize <= 0 || payloadSize > uint8.length - trailerSize) {
     throw new Error('Data tersembunyi rusak atau ukuran tidak valid.');
   }
 
-  const payloadStart = uint8.length - 9 - payloadSize;
+  // Extract face descriptor if present (sits between payload and trailer metadata)
+  let faceDescriptor: Float32Array | null = null;
+  if (hasFace) {
+    const faceStart = uint8.length - trailerSize;
+    const faceBytes = uint8.slice(faceStart, faceStart + FACE_BYTES);
+    faceDescriptor = deserializeFaceDescriptor(faceBytes);
+  }
+
+  const payloadStart = uint8.length - trailerSize - payloadSize;
   const payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize));
+
+  let files: HiddenFile[];
 
   if (methodFlag === 0x01) {
     if (!password) throw new Error('File ini memerlukan password (XOR).');
     const decrypted = xorEncrypt(payloadBytes, password);
     try {
-      const files = deserializeFilesRaw(decrypted);
-      return files.map((f) => ({
+      const raw = deserializeFilesRaw(decrypted);
+      files = raw.map((f) => ({
         id: generateId(),
         name: f.name,
         size: f.data.byteLength,
@@ -705,9 +794,7 @@ export async function extractFiles(
     } catch {
       throw new Error('Gagal membaca data tersembunyi. Password mungkin salah atau file rusak.');
     }
-  }
-
-  if (methodFlag === 0x02) {
+  } else if (methodFlag === 0x02) {
     if (!password) throw new Error('File ini memerlukan password (AES).');
     const decrypted = await aesDecrypt(payloadBytes, password);
     let payloadJson: string;
@@ -727,7 +814,33 @@ export async function extractFiles(
       throw new Error('Format data tidak valid.');
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return payloadObj.files.map((f: any) => ({
+    files = payloadObj.files.map((f: any) => ({
+      id: generateId(),
+      name: f.name,
+      size: f.size || 0,
+      type: f.type,
+      data: base64ToArrayBuffer(f.dataBase64),
+      comment: f.comment || '',
+    }));
+  } else {
+    let payloadJson: string;
+    try {
+      payloadJson = new TextDecoder().decode(payloadBytes);
+    } catch {
+      throw new Error('Gagal mendekode data.');
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let payloadObj: any;
+    try {
+      payloadObj = JSON.parse(payloadJson);
+    } catch {
+      throw new Error('Gagal membaca data tersembunyi.');
+    }
+    if (!payloadObj.files || !Array.isArray(payloadObj.files)) {
+      throw new Error('Format data tidak valid.');
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    files = payloadObj.files.map((f: any) => ({
       id: generateId(),
       name: f.name,
       size: f.size || 0,
@@ -737,49 +850,31 @@ export async function extractFiles(
     }));
   }
 
-  let payloadJson: string;
-  try {
-    payloadJson = new TextDecoder().decode(payloadBytes);
-  } catch {
-    throw new Error('Gagal mendekode data.');
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let payloadObj: any;
-  try {
-    payloadObj = JSON.parse(payloadJson);
-  } catch {
-    throw new Error('Gagal membaca data tersembunyi.');
-  }
-  if (!payloadObj.files || !Array.isArray(payloadObj.files)) {
-    throw new Error('Format data tidak valid.');
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return payloadObj.files.map((f: any) => ({
-    id: generateId(),
-    name: f.name,
-    size: f.size || 0,
-    type: f.type,
-    data: base64ToArrayBuffer(f.dataBase64),
-    comment: f.comment || '',
-  }));
+  return { files, faceDescriptor };
 }
 
 export async function reEmbedFiles(
   stegoBuffer: ArrayBuffer,
   files: HiddenFile[],
   password?: string,
-  method?: EncryptionMethod
+  method?: EncryptionMethod,
+  faceDescriptor?: Float32Array | null
 ): Promise<Blob> {
   const uint8 = new Uint8Array(stegoBuffer);
 
-  const sizeOffset = uint8.length - 9;
-  const payloadSize =
-    (uint8[sizeOffset] << 24) |
-    (uint8[sizeOffset + 1] << 16) |
-    (uint8[sizeOffset + 2] << 8) |
-    uint8[sizeOffset + 3];
+  // Read trailer to find payload boundaries
+  const hasFaceFlag = uint8[uint8.length - 6];
+  const hasFaceOld  = hasFaceFlag === 0x01;
+  const trailerSizeOld = hasFaceOld ? TRAILER_SIZE_WITH_FACE : TRAILER_SIZE_NO_FACE;
 
-  const coverEnd = uint8.length - 9 - payloadSize;
+  const sizeOffset = uint8.length - 10;
+  const payloadSize =
+    (uint8[sizeOffset]     << 24) |
+    (uint8[sizeOffset + 1] << 16) |
+    (uint8[sizeOffset + 2] <<  8) |
+     uint8[sizeOffset + 3];
+
+  const coverEnd = uint8.length - trailerSizeOld - payloadSize;
   const coverBytes = new Uint8Array(stegoBuffer.slice(0, coverEnd));
 
   let payloadBytes: Uint8Array;
@@ -787,21 +882,15 @@ export async function reEmbedFiles(
 
   if (password && method === 'xor') {
     const filesForRaw = files.map((f) => ({
-      name: f.name,
-      type: f.type,
-      data: f.data,
-      comment: f.comment || undefined,
+      name: f.name, type: f.type, data: f.data, comment: f.comment || undefined,
     }));
     const rawBytes = serializeFilesRaw(filesForRaw);
     payloadBytes = xorEncrypt(rawBytes, password);
     methodFlag = 0x01;
   } else if (password && method === 'aes') {
     const filesData = files.map((f) => ({
-      name: f.name,
-      type: f.type,
-      size: f.size,
-      dataBase64: arrayBufferToBase64(f.data),
-      comment: f.comment || undefined,
+      name: f.name, type: f.type, size: f.size,
+      dataBase64: arrayBufferToBase64(f.data), comment: f.comment || undefined,
     }));
     const payloadJson = JSON.stringify({ files: filesData });
     const plainBytes = new TextEncoder().encode(payloadJson);
@@ -809,34 +898,40 @@ export async function reEmbedFiles(
     methodFlag = 0x02;
   } else {
     const filesData = files.map((f) => ({
-      name: f.name,
-      type: f.type,
-      size: f.size,
-      dataBase64: arrayBufferToBase64(f.data),
-      comment: f.comment || undefined,
+      name: f.name, type: f.type, size: f.size,
+      dataBase64: arrayBufferToBase64(f.data), comment: f.comment || undefined,
     }));
     const payloadJson = JSON.stringify({ files: filesData });
     payloadBytes = new TextEncoder().encode(payloadJson);
     methodFlag = 0x00;
   }
 
+  const hasFace = !!(faceDescriptor && faceDescriptor.length === FACE_DESCRIPTOR_LENGTH);
+  const trailerSize = hasFace ? TRAILER_SIZE_WITH_FACE : TRAILER_SIZE_NO_FACE;
   const newPayloadSize = payloadBytes.length;
-  const totalSize = coverBytes.length + newPayloadSize + 9;
+  const totalSize = coverBytes.length + newPayloadSize + trailerSize;
   const combined = new Uint8Array(totalSize);
 
   combined.set(coverBytes, 0);
   combined.set(payloadBytes, coverBytes.length);
 
-  const metaOffset = coverBytes.length + newPayloadSize;
-  combined[metaOffset] = (newPayloadSize >> 24) & 0xff;
+  let metaOffset = coverBytes.length + newPayloadSize;
+
+  if (hasFace && faceDescriptor) {
+    combined.set(serializeFaceDescriptor(faceDescriptor), metaOffset);
+    metaOffset += FACE_BYTES;
+  }
+
+  combined[metaOffset]     = (newPayloadSize >> 24) & 0xff;
   combined[metaOffset + 1] = (newPayloadSize >> 16) & 0xff;
-  combined[metaOffset + 2] = (newPayloadSize >> 8) & 0xff;
-  combined[metaOffset + 3] = newPayloadSize & 0xff;
-  combined[metaOffset + 4] = methodFlag;
-  combined[metaOffset + 5] = MAGIC_BYTES[0];
-  combined[metaOffset + 6] = MAGIC_BYTES[1];
-  combined[metaOffset + 7] = MAGIC_BYTES[2];
-  combined[metaOffset + 8] = MAGIC_BYTES[3];
+  combined[metaOffset + 2] = (newPayloadSize >>  8) & 0xff;
+  combined[metaOffset + 3] =  newPayloadSize        & 0xff;
+  combined[metaOffset + 4] = hasFace ? 0x01 : 0x00;
+  combined[metaOffset + 5] = methodFlag;
+  combined[metaOffset + 6] = MAGIC_BYTES[0];
+  combined[metaOffset + 7] = MAGIC_BYTES[1];
+  combined[metaOffset + 8] = MAGIC_BYTES[2];
+  combined[metaOffset + 9] = MAGIC_BYTES[3];
 
   return new Blob([combined], { type: 'application/octet-stream' });
 }
