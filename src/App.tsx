@@ -1794,7 +1794,7 @@ export function App() {
                       <div className="mt-4 animate-slideDown">
                         <div className="flex items-center gap-1.5 mb-2">
                           <ScanFace className="w-3.5 h-3.5 text-violet-500" />
-                          <span className="text-xs font-semibold text-slate-600">Verifikasi Face Lock</span>
+                          <span className="text-xs font-semibold text-slate-600">Verifikasi Keamanan Ganda</span>
                           <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-md">Diperlukan</span>
                         </div>
                         {!faceVerified ? (
@@ -1803,8 +1803,8 @@ export function App() {
                               <ScanFace className="w-6 h-6 text-violet-500" />
                             </div>
                             <div className="text-center">
-                              <p className="text-xs font-semibold text-slate-600">File ini dikunci dengan wajah</p>
-                              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">Wah ada keamanan tambahan nih di file ini</p>
+                              <p className="text-xs font-semibold text-slate-600">Verifikasi Wajah</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug"></p>
                             </div>
                             <button
                               type="button"
@@ -1825,7 +1825,7 @@ export function App() {
                             </div>
                             <div className="flex-1">
                               <p className="text-xs font-bold text-emerald-700">Wajah Terverifikasi ✓</p>
-                              <p className="text-[11px] text-emerald-600/80">Identitas cocok dengan yang tersimpan di file</p>
+                              <p className="text-[11px] text-emerald-600/80">Identitas cocok</p>
                             </div>
                             <button
                               type="button"
