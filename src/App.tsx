@@ -1716,7 +1716,6 @@ export function App() {
                             </div>
                             <div className="flex-1">
                               <p className="text-xs font-bold text-emerald-700">Wajah Terverifikasi ✓</p>
-                              <p className="text-[11px] text-emerald-600/80">Identitas cocok dengan yang tersimpan di file</p>
                             </div>
                             <button
                               type="button"
