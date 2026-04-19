@@ -1266,7 +1266,7 @@ export function App() {
           }}
           onVerified={() => {
             setFaceVerified(true);
-            showToast('Verifikasi wajah berhasil! Silakan klik Dekripsi.', 'success');
+            showToast('Verifikasi wajah berhasil!', 'success');
           }}
           onClose={() => setShowFaceScanner(false)}
         />
