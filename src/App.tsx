@@ -1803,7 +1803,7 @@ export function App() {
                               <ScanFace className="w-6 h-6 text-violet-500" />
                             </div>
                             <div className="text-center">
-                              <p className="text-xs font-semibold text-slate-600">Verifikasi Wajah</p>
+                              <p className="text-xs font-semibold text-slate-600">Face Lock Aktif</p>
                               <p className="text-[11px] text-slate-400 mt-0.5 leading-snug"></p>
                             </div>
                             <button
