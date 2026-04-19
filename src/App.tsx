@@ -1524,8 +1524,8 @@ export function App() {
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-1.5">
                           <ScanFace className="w-3.5 h-3.5 text-emerald-600" />
-                          <span className="text-xs font-semibold text-slate-600">Keamanan Ganda — Face Lock</span>
-                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">PRO</span>
+                          <span className="text-xs font-semibold text-slate-600">Keamanan Ganda</span>
+                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">OPSIONAL</span>
                         </div>
                       </div>
 
@@ -1536,7 +1536,6 @@ export function App() {
                           </div>
                           <div className="text-center">
                             <p className="text-xs font-semibold text-slate-600">Aktifkan Face Lock</p>
-                            <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">128 fitur wajah dienkripsi dan disimpan di dalam stego file. Dekripsi nanti membutuhkan verifikasi wajah.</p>
                           </div>
                           <button
                             type="button"
