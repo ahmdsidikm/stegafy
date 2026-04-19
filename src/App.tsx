@@ -71,32 +71,110 @@ declare global {
   interface Window { faceapi: any; }
 }
 
-function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onFailed, onClose }: FaceScannerProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onClose }: FaceScannerProps) {
+  const videoRef    = useRef<HTMLVideoElement>(null);
+  const canvasRef   = useRef<HTMLCanvasElement>(null);
+  const streamRef   = useRef<MediaStream | null>(null);
+  const rafRef      = useRef<number | null>(null);
+  const lockedRef   = useRef(false); // prevent re-entry during capture
 
-  const [status, setStatus] = useState<FaceScanStatus>('loading-models');
-  const [statusMsg, setStatusMsg] = useState('Memuat model AI wajah...');
+  const [status, setStatus]         = useState<FaceScanStatus>('loading-models');
+  const [statusMsg, setStatusMsg]   = useState('Memuat model AI wajah...');
   const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [faceDetected, setFaceDetected] = useState(false); // live indicator
 
   const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
 
   const stopCamera = useCallback(() => {
-    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
   }, []);
 
+  // ── Real-time detection loop (RAF, no setInterval) ──────────────────
+  const startDetectionLoop = useCallback((faceapi: Window['faceapi']) => {
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+
+    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 });
+
+    const loop = async () => {
+      if (lockedRef.current || !video || !canvas) return;
+      if (video.readyState >= 2) {
+        try {
+          const detection = await faceapi
+            .detectSingleFace(video, options)
+            .withFaceLandmarks(true);
+
+          const ctx = canvas.getContext('2d');
+          if (!ctx) { rafRef.current = requestAnimationFrame(loop); return; }
+
+          // Match canvas size to video display size
+          const { videoWidth: vw, videoHeight: vh } = video;
+          const dw = canvas.offsetWidth;
+          const dh = canvas.offsetHeight;
+          canvas.width  = dw;
+          canvas.height = dh;
+          ctx.clearRect(0, 0, dw, dh);
+
+          if (detection) {
+            setFaceDetected(true);
+            // Scale box from video coords → canvas coords, mirrored horizontally
+            const scaleX = dw / vw;
+            const scaleY = dh / vh;
+            const box = detection.detection.box;
+            const rx = dw - (box.x + box.width)  * scaleX;  // mirror
+            const ry = box.y * scaleY;
+            const rw = box.width  * scaleX;
+            const rh = box.height * scaleY;
+
+            // Outer glow
+            ctx.shadowColor   = mode === 'enroll' ? '#10b981' : '#7c3aed';
+            ctx.shadowBlur    = 12;
+            ctx.strokeStyle   = mode === 'enroll' ? '#10b981' : '#8b5cf6';
+            ctx.lineWidth     = 2.5;
+            ctx.strokeRect(rx, ry, rw, rh);
+            ctx.shadowBlur = 0;
+
+            // Corner brackets
+            const C = 16;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth   = 3;
+            const corners: [number, number, number, number][] = [
+              [rx,      ry,       C,  0], [rx,      ry,       0,  C],
+              [rx+rw,   ry,      -C,  0], [rx+rw,   ry,       0,  C],
+              [rx,      ry+rh,    C,  0], [rx,      ry+rh,    0, -C],
+              [rx+rw,   ry+rh,   -C,  0], [rx+rw,   ry+rh,    0, -C],
+            ];
+            for (const [sx, sy, dx, dy] of corners) {
+              ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + dx, sy + dy); ctx.stroke();
+            }
+
+            // Confidence dot
+            const conf = detection.detection.score;
+            ctx.fillStyle = conf > 0.7 ? '#10b981' : '#f59e0b';
+            ctx.beginPath();
+            ctx.arc(rx + rw - 6, ry + 6, 5, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            setFaceDetected(false);
+          }
+        } catch { /* ignore detection errors in loop */ }
+      }
+      rafRef.current = requestAnimationFrame(loop);
+    };
+
+    rafRef.current = requestAnimationFrame(loop);
+  }, [mode]);
+
   useEffect(() => {
     let cancelled = false;
 
     const loadAndStart = async () => {
       try {
-        // Load face-api.js from CDN if not already loaded
         if (!window.faceapi) {
           await new Promise<void>((res, rej) => {
             const script = document.createElement('script');
@@ -106,16 +184,13 @@ function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onFailed, 
             document.head.appendChild(script);
           });
         }
-
         const faceapi = window.faceapi;
-
         setStatusMsg('Memuat model pendeteksi wajah...');
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
           faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
           faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
         ]);
-
         if (cancelled) return;
         setModelsLoaded(true);
         setStatusMsg('Membuka kamera...');
@@ -123,7 +198,6 @@ function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onFailed, 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480, facingMode: 'user' },
         });
-
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
 
         streamRef.current = stream;
@@ -133,7 +207,10 @@ function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onFailed, 
         }
 
         setStatus('waiting');
-        setStatusMsg(mode === 'enroll' ? 'Arahkan wajah ke kamera, lalu klik Scan' : 'Arahkan wajah ke kamera, lalu klik Verifikasi');
+        setStatusMsg(mode === 'enroll'
+          ? 'Arahkan wajah ke kamera — kotak hijau akan muncul saat terdeteksi'
+          : 'Arahkan wajah ke kamera — kotak ungu akan muncul saat terdeteksi');
+        startDetectionLoop(faceapi);
       } catch (err) {
         if (!cancelled) {
           setStatus('error');
@@ -143,16 +220,14 @@ function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onFailed, 
     };
 
     loadAndStart();
-    return () => {
-      cancelled = true;
-      stopCamera();
-    };
-  }, [mode, stopCamera]);
+    return () => { cancelled = true; stopCamera(); };
+  }, [mode, stopCamera, startDetectionLoop]);
 
   const scanFace = async () => {
-    if (!videoRef.current || !window.faceapi) return;
+    if (!videoRef.current || !window.faceapi || lockedRef.current) return;
+    lockedRef.current = true;
     setStatus('detecting');
-    setStatusMsg('Mendeteksi wajah...');
+    setStatusMsg('Mengambil fitur wajah...');
 
     try {
       const faceapi = window.faceapi;
@@ -164,9 +239,15 @@ function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onFailed, 
         .withFaceDescriptor();
 
       if (!detection) {
+        lockedRef.current = false;
         setStatus('no-face');
         setStatusMsg('Wajah tidak terdeteksi. Pastikan pencahayaan cukup dan wajah terlihat jelas.');
-        setTimeout(() => { setStatus('waiting'); setStatusMsg(mode === 'enroll' ? 'Arahkan wajah ke kamera, lalu klik Scan' : 'Arahkan wajah ke kamera, lalu klik Verifikasi'); }, 2500);
+        setTimeout(() => {
+          setStatus('waiting');
+          setStatusMsg(mode === 'enroll'
+            ? 'Arahkan wajah ke kamera — kotak hijau akan muncul saat terdeteksi'
+            : 'Arahkan wajah ke kamera — kotak ungu akan muncul saat terdeteksi');
+        }, 2500);
         return;
       }
 
@@ -176,61 +257,69 @@ function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onFailed, 
         setStatus('success');
         setStatusMsg('Wajah berhasil dipindai! ✓');
         stopCamera();
-        setTimeout(() => { onCapture?.(descriptor); onClose(); }, 800);
+        setTimeout(() => { onCapture?.(descriptor); onClose(); }, 900);
       } else {
-        // Verify mode
         if (!storedDescriptor) {
+          lockedRef.current = false;
           setStatus('error');
           setStatusMsg('Tidak ada data wajah tersimpan di file ini.');
           return;
         }
-
         const dist = faceDescriptorDistance(descriptor, storedDescriptor);
         if (isFaceMatch(descriptor, storedDescriptor)) {
           setStatus('success');
           setStatusMsg(`Wajah cocok! (jarak: ${dist.toFixed(3)}) ✓`);
           stopCamera();
-          setTimeout(() => { onVerified?.(descriptor); onClose(); }, 800);
+          setTimeout(() => { onVerified?.(descriptor); onClose(); }, 900);
         } else {
+          lockedRef.current = false;
           setStatus('error');
           setStatusMsg(`Wajah tidak cocok (jarak: ${dist.toFixed(3)}, batas: ${FACE_MATCH_THRESHOLD}). Coba lagi.`);
-          setTimeout(() => { setStatus('waiting'); setStatusMsg('Arahkan wajah ke kamera, lalu klik Verifikasi'); }, 3000);
+          setTimeout(() => {
+            setStatus('waiting');
+            setStatusMsg('Arahkan wajah ke kamera — kotak ungu akan muncul saat terdeteksi');
+          }, 3000);
         }
       }
     } catch (err) {
+      lockedRef.current = false;
       setStatus('error');
       setStatusMsg(`Error: ${(err as Error).message}`);
     }
   };
 
-  const statusColor =
-    status === 'success' ? 'text-emerald-600' :
-    status === 'error' || status === 'no-face' ? 'text-red-500' :
-    status === 'detecting' ? 'text-violet-600' :
+  const accentGreen  = mode === 'enroll';
+  const statusColor  =
+    status === 'success'                   ? 'text-emerald-600' :
+    status === 'error' || status === 'no-face' ? 'text-red-500'     :
+    status === 'detecting'                 ? (accentGreen ? 'text-emerald-600' : 'text-violet-600') :
     'text-slate-500';
 
   const borderColor =
-    status === 'success' ? 'border-emerald-400' :
-    status === 'error' || status === 'no-face' ? 'border-red-400' :
-    status === 'detecting' ? 'border-violet-400' :
+    status === 'success'                   ? 'border-emerald-400' :
+    status === 'error' || status === 'no-face' ? 'border-red-400'     :
+    faceDetected && status === 'waiting'   ? (accentGreen ? 'border-emerald-400' : 'border-violet-400') :
     'border-slate-300';
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 animate-overlayIn">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md animate-scaleIn overflow-hidden">
+    /* backdrop — pointer-events pada div luar, bukan backdrop, supaya tidak ada re-render cascade */
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.72)' }}>
+      {/* invisible clickable backdrop area behind modal */}
+      <div className="absolute inset-0" onClick={onClose} />
+
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" style={{ animation: 'scaleIn 0.18s ease-out both' }}>
         {/* Header */}
-        <div className={`px-5 py-4 flex items-center justify-between border-b border-slate-100 ${mode === 'enroll' ? 'bg-emerald-50' : 'bg-violet-50'}`}>
+        <div className={`px-5 py-4 flex items-center justify-between border-b border-slate-100 ${accentGreen ? 'bg-emerald-50' : 'bg-violet-50'}`}>
           <div className="flex items-center gap-3">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${mode === 'enroll' ? 'bg-emerald-100' : 'bg-violet-100'}`}>
-              <ScanFace className={`w-5 h-5 ${mode === 'enroll' ? 'text-emerald-600' : 'text-violet-600'}`} />
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${accentGreen ? 'bg-emerald-100' : 'bg-violet-100'}`}>
+              <ScanFace className={`w-5 h-5 ${accentGreen ? 'text-emerald-600' : 'text-violet-600'}`} />
             </div>
             <div>
-              <p className={`text-sm font-bold ${mode === 'enroll' ? 'text-emerald-800' : 'text-violet-800'}`}>
-                {mode === 'enroll' ? 'Daftarkan Wajah' : 'Verifikasi Wajah'}
+              <p className={`text-sm font-bold ${accentGreen ? 'text-emerald-800' : 'text-violet-800'}`}>
+                {accentGreen ? 'Daftarkan Wajah' : 'Verifikasi Wajah'}
               </p>
               <p className="text-[11px] text-slate-500">
-                {mode === 'enroll' ? 'Wajah akan dienkripsi & disimpan di stego file' : 'Cocokkan wajah dengan yang tersimpan di file'}
+                {accentGreen ? 'Wajah akan dienkripsi & disimpan di stego file' : 'Cocokkan wajah dengan yang tersimpan di file'}
               </p>
             </div>
           </div>
@@ -239,55 +328,75 @@ function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onFailed, 
           </button>
         </div>
 
-        {/* Video feed */}
+        {/* Video + Canvas overlay */}
         <div className="p-4">
-          <div className={`relative rounded-xl overflow-hidden border-2 transition-colors ${borderColor} bg-black`} style={{ aspectRatio: '4/3' }}>
+          <div
+            className={`relative rounded-xl overflow-hidden border-2 transition-colors duration-300 bg-black ${borderColor}`}
+            style={{ aspectRatio: '4/3' }}
+          >
+            {/* Mirrored video */}
             <video
               ref={videoRef}
-              className="w-full h-full object-cover scale-x-[-1]"
+              className="w-full h-full object-cover"
+              style={{ transform: 'scaleX(-1)' }}
               playsInline
               muted
             />
-            {/* Scanning overlay */}
-            {status === 'detecting' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                <div className="w-48 h-48 rounded-full border-4 border-violet-400 border-dashed animate-spin opacity-70" />
-              </div>
-            )}
-            {status === 'success' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-emerald-900/30">
-                <CheckCircle className="w-16 h-16 text-emerald-400 drop-shadow-lg" />
-              </div>
-            )}
+
+            {/* Canvas for face box overlay — also mirrored via CSS so coords match */}
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+            />
+
+            {/* Loading overlay */}
             {(status === 'loading-models' || !modelsLoaded) && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80">
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/85">
                 <Loader2 className="w-8 h-8 text-white animate-spin mb-2" />
-                <p className="text-xs text-slate-300">Memuat model AI...</p>
+                <p className="text-xs text-slate-300 font-medium">Memuat model AI wajah...</p>
               </div>
             )}
-            {/* Face guide frame */}
-            {status === 'waiting' && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-44 h-52 border-2 border-white/50 rounded-full opacity-50" />
+
+            {/* Success overlay */}
+            {status === 'success' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-emerald-900/40">
+                <CheckCircle className="w-16 h-16 text-emerald-300 drop-shadow-lg" />
+              </div>
+            )}
+
+            {/* Face detected live badge */}
+            {faceDetected && status === 'waiting' && (
+              <div className={`absolute top-2 left-2 flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-bold backdrop-blur-sm
+                ${accentGreen ? 'bg-emerald-500/90 text-white' : 'bg-violet-500/90 text-white'}`}>
+                <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                Wajah Terdeteksi
+              </div>
+            )}
+
+            {/* No-face warning badge */}
+            {status === 'no-face' && (
+              <div className="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-bold bg-red-500/90 text-white backdrop-blur-sm">
+                <AlertCircle className="w-3 h-3" />
+                Wajah Tidak Terdeteksi
               </div>
             )}
           </div>
 
-          {/* Status message */}
-          <div className={`mt-3 flex items-start gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100`}>
-            {status === 'detecting' && <Loader2 className="w-3.5 h-3.5 mt-0.5 animate-spin text-violet-500 shrink-0" />}
-            {status === 'success' && <CheckCircle className="w-3.5 h-3.5 mt-0.5 text-emerald-500 shrink-0" />}
+          {/* Status bar */}
+          <div className="mt-3 flex items-start gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100">
+            {status === 'detecting'   && <Loader2     className={`w-3.5 h-3.5 mt-0.5 animate-spin shrink-0 ${accentGreen ? 'text-emerald-500' : 'text-violet-500'}`} />}
+            {status === 'success'     && <CheckCircle  className="w-3.5 h-3.5 mt-0.5 text-emerald-500 shrink-0" />}
             {(status === 'error' || status === 'no-face') && <AlertCircle className="w-3.5 h-3.5 mt-0.5 text-red-500 shrink-0" />}
             {(status === 'waiting' || status === 'loading-models') && <Camera className="w-3.5 h-3.5 mt-0.5 text-slate-400 shrink-0" />}
             <p className={`text-xs leading-snug font-medium ${statusColor}`}>{statusMsg}</p>
           </div>
 
-          {/* Tips */}
-          {mode === 'enroll' && (
+          {/* Privacy tip */}
+          {accentGreen && (
             <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
               <Info className="w-3.5 h-3.5 mt-0.5 text-amber-500 shrink-0" />
               <p className="text-[11px] text-amber-700 leading-snug">
-                128 nilai fitur wajah kamu akan dienkripsi dan disimpan di dalam stego file. Wajah asli tidak tersimpan.
+                Hanya 128 nilai fitur wajah yang disimpan — bukan foto. Data ini dienkripsi di dalam stego file.
               </p>
             </div>
           )}
@@ -298,14 +407,14 @@ function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onFailed, 
           <button
             onClick={scanFace}
             disabled={status !== 'waiting' && status !== 'error' && status !== 'no-face'}
-            className={`w-full py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-md
-              ${mode === 'enroll'
+            className={`w-full py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2
+              active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-md
+              ${accentGreen
                 ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-200'
-                : 'bg-violet-500 hover:bg-violet-600 text-white shadow-violet-200'
-              }`}
+                : 'bg-violet-500  hover:bg-violet-600  text-white shadow-violet-200'}`}
           >
             <ScanFace className="w-4 h-4" />
-            {mode === 'enroll' ? 'Scan & Simpan Wajah' : 'Verifikasi Wajah'}
+            {accentGreen ? 'Scan & Simpan Wajah' : 'Verifikasi Wajah'}
           </button>
         </div>
       </div>
@@ -1415,8 +1524,8 @@ export function App() {
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-1.5">
                           <ScanFace className="w-3.5 h-3.5 text-emerald-600" />
-                          <span className="text-xs font-semibold text-slate-600">Keamanan Ganda</span>
-                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">OPSIONAL</span>
+                          <span className="text-xs font-semibold text-slate-600">Keamanan Ganda — Face Lock</span>
+                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">PRO</span>
                         </div>
                       </div>
 
@@ -1427,6 +1536,7 @@ export function App() {
                           </div>
                           <div className="text-center">
                             <p className="text-xs font-semibold text-slate-600">Aktifkan Face Lock</p>
+                            <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">128 fitur wajah dienkripsi dan disimpan di dalam stego file. Dekripsi nanti membutuhkan verifikasi wajah.</p>
                           </div>
                           <button
                             type="button"
@@ -1716,6 +1826,7 @@ export function App() {
                             </div>
                             <div className="flex-1">
                               <p className="text-xs font-bold text-emerald-700">Wajah Terverifikasi ✓</p>
+                              <p className="text-[11px] text-emerald-600/80">Identitas cocok dengan yang tersimpan di file</p>
                             </div>
                             <button
                               type="button"
