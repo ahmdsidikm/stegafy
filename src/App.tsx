@@ -1427,7 +1427,6 @@ export function App() {
                           </div>
                           <div className="text-center">
                             <p className="text-xs font-semibold text-slate-600">Aktifkan Face Lock</p>
-                            <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">128 fitur wajah dienkripsi dan disimpan di dalam stego file. Dekripsi nanti membutuhkan verifikasi wajah.</p>
                           </div>
                           <button
                             type="button"
