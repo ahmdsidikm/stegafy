@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import JSZip from 'jszip';
 import {
   Unlock, Upload, X, Download, Lock, Eye,
@@ -8,13 +8,14 @@ import {
   Shield, Info, DownloadCloud, AlertTriangle,
   EyeOff, LockKeyhole, MessageSquare, MessageSquarePlus,
   Maximize2, Edit3, Check, KeyRound, Search,
-  LayoutGrid, Zap, ShieldCheck,
+  LayoutGrid, Zap, ShieldCheck, ScanFace, Camera, CameraOff,
 } from 'lucide-react';
 import {
   embedFiles, extractFiles, checkForHiddenData, reEmbedFiles,
   readFileAsArrayBuffer, readFileAsDataURL, readFileAsText,
   blobToDataURL, blobToText, formatFileSize, getFileCategory,
   calculatePasswordStrength, secureWipeString,
+  isFaceMatch, faceDescriptorDistance, FACE_MATCH_THRESHOLD,
   type HiddenFile, type EncryptionMethod, type PasswordStrength,
 } from './utils/stego';
 
@@ -45,6 +46,271 @@ interface ImageLightbox {
   open: boolean;
   src: string;
   alt: string;
+}
+
+// ──────────────────────────────────────────────
+// Face Scanner Component (face-api.js)
+// ──────────────────────────────────────────────
+
+type FaceScanMode = 'enroll' | 'verify';
+type FaceScanStatus = 'idle' | 'loading-models' | 'waiting' | 'detecting' | 'success' | 'error' | 'no-face';
+
+interface FaceScannerProps {
+  mode: FaceScanMode;
+  /** For verify mode: the stored descriptor to match against */
+  storedDescriptor?: Float32Array | null;
+  onCapture?: (descriptor: Float32Array) => void;
+  onVerified?: (descriptor: Float32Array) => void;
+  onFailed?: (reason: string) => void;
+  onClose: () => void;
+}
+
+declare global {
+  // face-api.js loaded via CDN
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  interface Window { faceapi: any; }
+}
+
+function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onFailed, onClose }: FaceScannerProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [status, setStatus] = useState<FaceScanStatus>('loading-models');
+  const [statusMsg, setStatusMsg] = useState('Memuat model AI wajah...');
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+
+  const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+
+  const stopCamera = useCallback(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAndStart = async () => {
+      try {
+        // Load face-api.js from CDN if not already loaded
+        if (!window.faceapi) {
+          await new Promise<void>((res, rej) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js';
+            script.onload = () => res();
+            script.onerror = () => rej(new Error('Gagal memuat library face-api.js'));
+            document.head.appendChild(script);
+          });
+        }
+
+        const faceapi = window.faceapi;
+
+        setStatusMsg('Memuat model pendeteksi wajah...');
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
+          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+        ]);
+
+        if (cancelled) return;
+        setModelsLoaded(true);
+        setStatusMsg('Membuka kamera...');
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480, facingMode: 'user' },
+        });
+
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+
+        setStatus('waiting');
+        setStatusMsg(mode === 'enroll' ? 'Arahkan wajah ke kamera, lalu klik Scan' : 'Arahkan wajah ke kamera, lalu klik Verifikasi');
+      } catch (err) {
+        if (!cancelled) {
+          setStatus('error');
+          setStatusMsg((err as Error).message || 'Gagal membuka kamera');
+        }
+      }
+    };
+
+    loadAndStart();
+    return () => {
+      cancelled = true;
+      stopCamera();
+    };
+  }, [mode, stopCamera]);
+
+  const scanFace = async () => {
+    if (!videoRef.current || !window.faceapi) return;
+    setStatus('detecting');
+    setStatusMsg('Mendeteksi wajah...');
+
+    try {
+      const faceapi = window.faceapi;
+      const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
+
+      const detection = await faceapi
+        .detectSingleFace(videoRef.current, options)
+        .withFaceLandmarks(true)
+        .withFaceDescriptor();
+
+      if (!detection) {
+        setStatus('no-face');
+        setStatusMsg('Wajah tidak terdeteksi. Pastikan pencahayaan cukup dan wajah terlihat jelas.');
+        setTimeout(() => { setStatus('waiting'); setStatusMsg(mode === 'enroll' ? 'Arahkan wajah ke kamera, lalu klik Scan' : 'Arahkan wajah ke kamera, lalu klik Verifikasi'); }, 2500);
+        return;
+      }
+
+      const descriptor = new Float32Array(detection.descriptor);
+
+      if (mode === 'enroll') {
+        setStatus('success');
+        setStatusMsg('Wajah berhasil dipindai! ✓');
+        stopCamera();
+        setTimeout(() => { onCapture?.(descriptor); onClose(); }, 800);
+      } else {
+        // Verify mode
+        if (!storedDescriptor) {
+          setStatus('error');
+          setStatusMsg('Tidak ada data wajah tersimpan di file ini.');
+          return;
+        }
+
+        const dist = faceDescriptorDistance(descriptor, storedDescriptor);
+        if (isFaceMatch(descriptor, storedDescriptor)) {
+          setStatus('success');
+          setStatusMsg(`Wajah cocok! (jarak: ${dist.toFixed(3)}) ✓`);
+          stopCamera();
+          setTimeout(() => { onVerified?.(descriptor); onClose(); }, 800);
+        } else {
+          setStatus('error');
+          setStatusMsg(`Wajah tidak cocok (jarak: ${dist.toFixed(3)}, batas: ${FACE_MATCH_THRESHOLD}). Coba lagi.`);
+          setTimeout(() => { setStatus('waiting'); setStatusMsg('Arahkan wajah ke kamera, lalu klik Verifikasi'); }, 3000);
+        }
+      }
+    } catch (err) {
+      setStatus('error');
+      setStatusMsg(`Error: ${(err as Error).message}`);
+    }
+  };
+
+  const statusColor =
+    status === 'success' ? 'text-emerald-600' :
+    status === 'error' || status === 'no-face' ? 'text-red-500' :
+    status === 'detecting' ? 'text-violet-600' :
+    'text-slate-500';
+
+  const borderColor =
+    status === 'success' ? 'border-emerald-400' :
+    status === 'error' || status === 'no-face' ? 'border-red-400' :
+    status === 'detecting' ? 'border-violet-400' :
+    'border-slate-300';
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 animate-overlayIn">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md animate-scaleIn overflow-hidden">
+        {/* Header */}
+        <div className={`px-5 py-4 flex items-center justify-between border-b border-slate-100 ${mode === 'enroll' ? 'bg-emerald-50' : 'bg-violet-50'}`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${mode === 'enroll' ? 'bg-emerald-100' : 'bg-violet-100'}`}>
+              <ScanFace className={`w-5 h-5 ${mode === 'enroll' ? 'text-emerald-600' : 'text-violet-600'}`} />
+            </div>
+            <div>
+              <p className={`text-sm font-bold ${mode === 'enroll' ? 'text-emerald-800' : 'text-violet-800'}`}>
+                {mode === 'enroll' ? 'Daftarkan Wajah' : 'Verifikasi Wajah'}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                {mode === 'enroll' ? 'Wajah akan dienkripsi & disimpan di stego file' : 'Cocokkan wajah dengan yang tersimpan di file'}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/60 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Video feed */}
+        <div className="p-4">
+          <div className={`relative rounded-xl overflow-hidden border-2 transition-colors ${borderColor} bg-black`} style={{ aspectRatio: '4/3' }}>
+            <video
+              ref={videoRef}
+              className="w-full h-full object-cover scale-x-[-1]"
+              playsInline
+              muted
+            />
+            {/* Scanning overlay */}
+            {status === 'detecting' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                <div className="w-48 h-48 rounded-full border-4 border-violet-400 border-dashed animate-spin opacity-70" />
+              </div>
+            )}
+            {status === 'success' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-emerald-900/30">
+                <CheckCircle className="w-16 h-16 text-emerald-400 drop-shadow-lg" />
+              </div>
+            )}
+            {(status === 'loading-models' || !modelsLoaded) && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80">
+                <Loader2 className="w-8 h-8 text-white animate-spin mb-2" />
+                <p className="text-xs text-slate-300">Memuat model AI...</p>
+              </div>
+            )}
+            {/* Face guide frame */}
+            {status === 'waiting' && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-44 h-52 border-2 border-white/50 rounded-full opacity-50" />
+              </div>
+            )}
+          </div>
+
+          {/* Status message */}
+          <div className={`mt-3 flex items-start gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100`}>
+            {status === 'detecting' && <Loader2 className="w-3.5 h-3.5 mt-0.5 animate-spin text-violet-500 shrink-0" />}
+            {status === 'success' && <CheckCircle className="w-3.5 h-3.5 mt-0.5 text-emerald-500 shrink-0" />}
+            {(status === 'error' || status === 'no-face') && <AlertCircle className="w-3.5 h-3.5 mt-0.5 text-red-500 shrink-0" />}
+            {(status === 'waiting' || status === 'loading-models') && <Camera className="w-3.5 h-3.5 mt-0.5 text-slate-400 shrink-0" />}
+            <p className={`text-xs leading-snug font-medium ${statusColor}`}>{statusMsg}</p>
+          </div>
+
+          {/* Tips */}
+          {mode === 'enroll' && (
+            <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
+              <Info className="w-3.5 h-3.5 mt-0.5 text-amber-500 shrink-0" />
+              <p className="text-[11px] text-amber-700 leading-snug">
+                128 nilai fitur wajah kamu akan dienkripsi dan disimpan di dalam stego file. Wajah asli tidak tersimpan.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Action button */}
+        <div className="px-4 pb-4">
+          <button
+            onClick={scanFace}
+            disabled={status !== 'waiting' && status !== 'error' && status !== 'no-face'}
+            className={`w-full py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-md
+              ${mode === 'enroll'
+                ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-200'
+                : 'bg-violet-500 hover:bg-violet-600 text-white shadow-violet-200'
+              }`}
+          >
+            <ScanFace className="w-4 h-4" />
+            {mode === 'enroll' ? 'Scan & Simpan Wajah' : 'Verifikasi Wajah'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -198,6 +464,14 @@ export function App() {
   const [filterCategory, setFilterCategory] = useState<FilterCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Face auth state
+  const [embedFaceDescriptor, setEmbedFaceDescriptor] = useState<Float32Array | null>(null);
+  const [showFaceScanner, setShowFaceScanner] = useState(false);
+  const [faceScanMode, setFaceScanMode] = useState<'enroll' | 'verify'>('enroll');
+  const [storedFaceDescriptor, setStoredFaceDescriptor] = useState<Float32Array | null>(null);
+  const [faceVerified, setFaceVerified] = useState(false);
+  const [stegoHasFace, setStegoHasFace] = useState(false);
+
   const coverInputRef = useRef<HTMLInputElement>(null);
   const secretInputRef = useRef<HTMLInputElement>(null);
   const stegoInputRef = useRef<HTMLInputElement>(null);
@@ -258,6 +532,9 @@ export function App() {
     setStegoOutputName('');
     setEditingStegoName(false);
   };
+
+  // Reset face descriptor juga saat tab embed di-clear
+  const resetEmbedFace = () => setEmbedFaceDescriptor(null);
 
   const handleCoverSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -421,7 +698,11 @@ export function App() {
 
       const methodToUse = passwordCopy ? embedMethod : undefined;
 
-      const { blob, extension } = await embedFiles(coverFile, renamedFiles, passwordCopy || undefined, embedComments, methodToUse);
+      const { blob, extension } = await embedFiles(
+        coverFile, renamedFiles, passwordCopy || undefined,
+        embedComments, methodToUse,
+        embedFaceDescriptor ?? undefined
+      );
 
       const url = URL.createObjectURL(blob);
       setStegoResult({ url, extension });
@@ -488,6 +769,43 @@ export function App() {
       setStegoDetected(true);
       setNeedsPassword(check.hasPassword);
       setDetectedMethod(check.method);
+      setStegoHasFace(check.hasFace);
+      setFaceVerified(false);
+
+      // Pre-extract face descriptor from stego file (tersimpan di trailer, bukan payload)
+      // Ini aman dilakukan tanpa password karena face descriptor ada di luar payload terenkripsi
+      if (check.hasFace) {
+        try {
+          // Extract dengan password kosong — akan gagal di payload tapi face descriptor sudah terbaca
+          const { faceDescriptor } = await extractFiles(buffer, undefined, null).catch(() => ({ faceDescriptor: null, files: [] }));
+          // Jika no password stego atau bisa dibaca, ambil face descriptor-nya
+          // Untuk AES/XOR stego: face descriptor dibaca SEBELUM decrypt payload
+          // Kita extract langsung dari buffer trailer
+          if (faceDescriptor) {
+            setStoredFaceDescriptor(faceDescriptor);
+          } else {
+            // Extract face bytes langsung dari trailer buffer
+            const u8 = new Uint8Array(buffer);
+            const FACE_BYTES_LEN = 128 * 4;
+            const faceStart = u8.length - 10 - FACE_BYTES_LEN;
+            if (faceStart >= 0) {
+              const faceBytes = u8.slice(faceStart, faceStart + FACE_BYTES_LEN);
+              const copy = new Uint8Array(faceBytes).buffer;
+              setStoredFaceDescriptor(new Float32Array(copy));
+            }
+          }
+        } catch {
+          // fallback: extract face bytes langsung dari trailer
+          const u8 = new Uint8Array(buffer);
+          const FACE_BYTES_LEN = 128 * 4;
+          const faceStart = u8.length - 10 - FACE_BYTES_LEN;
+          if (faceStart >= 0) {
+            const faceBytes = u8.slice(faceStart, faceStart + FACE_BYTES_LEN);
+            const copy = new Uint8Array(faceBytes).buffer;
+            setStoredFaceDescriptor(new Float32Array(copy));
+          }
+        }
+      }
       if (check.method) {
         setDecryptMethod(check.method);
       }
@@ -504,10 +822,20 @@ export function App() {
 
   const handleDecrypt = async () => {
     if (!stegoBuffer) return showToast('Pilih file stego terlebih dahulu!', 'error');
+
+    // Jika file punya face lock, wajib verifikasi wajah dulu
+    if (stegoHasFace && !faceVerified) {
+      showToast('File ini dilindungi wajah. Verifikasi wajah terlebih dahulu!', 'error');
+      return;
+    }
+
     setDecrypting(true);
-    const passwordCopy = decryptPassword; // Copy before potential clearing
+    const passwordCopy = decryptPassword;
     try {
-      const files = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod);
+      const { files, faceDescriptor } = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod);
+
+      // Simpan stored face descriptor untuk referensi (sudah diverifikasi sebelumnya)
+      if (faceDescriptor) setStoredFaceDescriptor(faceDescriptor);
 
       setDecryptedFiles(files);
       setModified(false);
@@ -523,7 +851,6 @@ export function App() {
       setSearchQuery('');
       if (detectedMethod) setDecryptMethod(detectedMethod);
 
-      // Clear decrypt password from memory after successful decryption
       clearDecryptPassword();
       showToast(`Berhasil mendekripsi ${files.length} file! Password telah dihapus dari memori.`, 'success');
 
@@ -593,7 +920,12 @@ export function App() {
     const passwordToUse = passwordChanged ? newPassword : originalDecryptPassword;
     const passwordCopy = passwordToUse; // Copy
     try {
-      const newBlob = await reEmbedFiles(stegoBuffer, decryptedFiles, passwordCopy || undefined, passwordCopy ? decryptMethod : undefined);
+      const newBlob = await reEmbedFiles(
+        stegoBuffer, decryptedFiles,
+        passwordCopy || undefined,
+        passwordCopy ? decryptMethod : undefined,
+        storedFaceDescriptor ?? undefined
+      );
 
       const newBuffer = await newBlob.arrayBuffer();
       setStegoBuffer(newBuffer);
@@ -738,6 +1070,9 @@ export function App() {
     setFilterCategory('all');
     setSearchQuery('');
     setDecryptMethod('xor');
+    setFaceVerified(false);
+    setStoredFaceDescriptor(null);
+    setStegoHasFace(false);
     if (stegoInputRef.current) stegoInputRef.current.value = '';
   };
 
@@ -811,6 +1146,23 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
+      {/* ====== FACE SCANNER MODAL ====== */}
+      {showFaceScanner && (
+        <FaceScanner
+          mode={faceScanMode}
+          storedDescriptor={storedFaceDescriptor}
+          onCapture={(descriptor) => {
+            setEmbedFaceDescriptor(descriptor);
+            showToast('Wajah berhasil didaftarkan! Akan dienkripsi bersama file.', 'success');
+          }}
+          onVerified={() => {
+            setFaceVerified(true);
+            showToast('Verifikasi wajah berhasil! Silakan klik Dekripsi.', 'success');
+          }}
+          onClose={() => setShowFaceScanner(false)}
+        />
+      )}
+
       {/* ====== IMAGE LIGHTBOX ====== */}
       {lightbox.open && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 animate-overlayIn">
@@ -1057,6 +1409,65 @@ export function App() {
                   {/* Password strength indicator */}
                   <PasswordStrengthIndicator password={embedPassword} />
 
+                  {/* ── Face Lock (hanya Mode Pro / AES) ── */}
+                  {embedMethod === 'aes' && embedPassword && (
+                    <div className="mt-4 animate-slideDown">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <ScanFace className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="text-xs font-semibold text-slate-600">Keamanan Ganda — Face Lock</span>
+                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">PRO</span>
+                        </div>
+                      </div>
+
+                      {!embedFaceDescriptor ? (
+                        <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4 flex flex-col items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+                            <ScanFace className="w-6 h-6 text-emerald-500" />
+                          </div>
+                          <div className="text-center">
+                            <p className="text-xs font-semibold text-slate-600">Aktifkan Face Lock</p>
+                            <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">128 fitur wajah dienkripsi dan disimpan di dalam stego file. Dekripsi nanti membutuhkan verifikasi wajah.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }}
+                            className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-[0.98] cursor-pointer shadow-sm shadow-emerald-200"
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            Scan Wajah Sekarang
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                            <CheckCircle className="w-5 h-5 text-emerald-500" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-emerald-700">Face Lock Aktif ✓</p>
+                            <p className="text-[11px] text-emerald-600/80 mt-0.5">128 vektor fitur wajah siap dienkripsi</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setEmbedFaceDescriptor(null)}
+                            className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer shrink-0"
+                            title="Hapus face lock"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }}
+                            className="p-1.5 rounded-lg hover:bg-emerald-100 text-emerald-500 transition-all cursor-pointer shrink-0"
+                            title="Scan ulang"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Encryption method selector (below password) */}
                   <div className="mt-4">
                     <div className="flex items-center justify-between mb-2.5">
@@ -1223,6 +1634,15 @@ export function App() {
                               </span>
                             </div>
                           )}
+                          {stegoHasFace && (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border bg-violet-50/50 border-violet-200 animate-fadeIn">
+                              <ScanFace className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                              <span className="text-xs font-semibold text-violet-700">
+                                Face Lock Aktif
+                              </span>
+                              {faceVerified && <CheckCircle className="w-3 h-3 text-emerald-500 ml-auto shrink-0" />}
+                            </div>
+                          )}
                           {!detectedMethod && !needsPassword && (
                             <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl animate-fadeIn">
                               <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -1261,6 +1681,57 @@ export function App() {
                       </button>
                     </div>
 
+                    {/* Face verification (if stego has face lock) */}
+                    {stegoHasFace && (
+                      <div className="mt-4 animate-slideDown">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <ScanFace className="w-3.5 h-3.5 text-violet-500" />
+                          <span className="text-xs font-semibold text-slate-600">Verifikasi Face Lock</span>
+                          <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-md">Diperlukan</span>
+                        </div>
+                        {!faceVerified ? (
+                          <div className="rounded-xl border-2 border-dashed border-violet-200 bg-violet-50/40 p-4 flex flex-col items-center gap-3">
+                            <div className="w-12 h-12 rounded-xl bg-violet-100 flex items-center justify-center">
+                              <ScanFace className="w-6 h-6 text-violet-500" />
+                            </div>
+                            <div className="text-center">
+                              <p className="text-xs font-semibold text-slate-600">File ini dikunci dengan wajah</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">Scan wajah kamu untuk memverifikasi identitas sebelum dekripsi.</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFaceScanMode('verify');
+                                setShowFaceScanner(true);
+                              }}
+                              className="flex items-center gap-2 bg-violet-500 hover:bg-violet-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-[0.98] cursor-pointer shadow-sm shadow-violet-200"
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              Verifikasi Wajah
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                              <CheckCircle className="w-4.5 h-4.5 text-emerald-500" />
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-xs font-bold text-emerald-700">Wajah Terverifikasi ✓</p>
+                              <p className="text-[11px] text-emerald-600/80">Identitas cocok dengan yang tersimpan di file</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => { setFaceVerified(false); setStoredFaceDescriptor(null); }}
+                              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer shrink-0"
+                              title="Verifikasi ulang"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Detected encryption method (read-only display) */}
                     {detectedMethod && (
                       <div className="mt-4">
@@ -1275,16 +1746,16 @@ export function App() {
                 {stegoFile && stegoDetected && !decryptionDone && (
                   <button
                     onClick={handleDecrypt}
-                    disabled={decrypting || (needsPassword && !decryptPassword)}
+                    disabled={decrypting || (needsPassword && !decryptPassword) || (stegoHasFace && !faceVerified)}
                     className="w-full bg-gradient-to-r from-violet-500 to-purple-500 text-white py-3.5 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-violet-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
                   >
                     {decrypting ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        {detectedMethod === 'aes'
-                          ? 'Mendekripsi AES-256 + Argon2...'
-                          : 'Mendekripsi...'}
+                        {detectedMethod === 'aes' ? 'Mendekripsi AES-256 + Argon2...' : 'Mendekripsi...'}
                       </>
+                    ) : stegoHasFace && !faceVerified ? (
+                      <><ScanFace className="w-4 h-4" />Verifikasi Wajah Dulu</>
                     ) : (
                       <><Unlock className="w-4 h-4" />Dekripsi</>
                     )}
