@@ -803,7 +803,7 @@ export function App() {
         </div>
         <p className={`text-sm font-bold mb-0.5 ${value === 'aes' && !disabled ? 'text-emerald-700' : 'text-slate-600'}`}>Mode Pro</p>
         <p className={`text-[10px] leading-snug ${value === 'aes' && !disabled ? 'text-emerald-600/80' : 'text-slate-400'}`}>
-          AES-256 + Argon2. Paling aman.
+          Ukuran file lebih besar tapi paling aman.
         </p>
       </button>
     </div>
