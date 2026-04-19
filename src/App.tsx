@@ -1804,7 +1804,7 @@ export function App() {
                             </div>
                             <div className="text-center">
                               <p className="text-xs font-semibold text-slate-600">File ini dikunci dengan wajah</p>
-                              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">Scan wajah kamu untuk memverifikasi identitas sebelum dekripsi.</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">Wah ada keamanan tambahan nih di file ini</p>
                             </div>
                             <button
                               type="button"
