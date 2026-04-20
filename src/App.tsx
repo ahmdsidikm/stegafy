@@ -580,6 +580,9 @@ export function App() {
   // Key type state (decrypt)
   const [decryptKeyType, setDecryptKeyType] = useState<'password' | 'keyfile'>('password');
 
+  // Toggle for dual security (face lock) in embed
+  const [showFaceLockOption, setShowFaceLockOption] = useState(false);
+
   // Filter & Search state
   const [filterCategory, setFilterCategory] = useState<FilterCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1554,6 +1557,7 @@ export function App() {
                           setGeneratedKey('');
                           setGeneratedKeyUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return ''; });
                           setEmbedFaceDescriptor(null);
+                          setShowFaceLockOption(false);
                           resetStegoResult();
                         }
                       }}
@@ -1582,7 +1586,7 @@ export function App() {
                         </div>
                         {renderEncryptionMethodSelector(
                           embedMethod,
-                          (m) => { setEmbedMethod(m); resetStegoResult(); if (m !== 'aes') { setEmbedKeyType('password'); setGeneratedKey(''); setGeneratedKeyUrl(''); } },
+                          (m) => { setEmbedMethod(m); resetStegoResult(); if (m !== 'aes') { setEmbedKeyType('password'); setGeneratedKey(''); setGeneratedKeyUrl(''); setShowFaceLockOption(false); setEmbedFaceDescriptor(null); } },
                           false
                         )}
                       </div>
@@ -1652,7 +1656,7 @@ export function App() {
                               className="w-full flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98] cursor-pointer shadow-md shadow-violet-200"
                             >
                               <RefreshCw className="w-4 h-4" />
-                              Generate Key
+                              Generate Key (50 karakter)
                             </button>
                           ) : (
                             <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 space-y-2">
@@ -1686,59 +1690,92 @@ export function App() {
                         </div>
                       )}
 
-                      {/* ── Face Lock (hanya Mode Pro / AES) ── */}
+                      {/* ── Keamanan Ganda / Face Lock (hanya Mode Pro / AES) ── */}
                       {embedMethod === 'aes' && (embedPassword || (embedKeyType === 'generate' && generatedKey)) && (
                         <div className="overflow-visible">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-1.5">
-                              <ScanFace className="w-3.5 h-3.5 text-emerald-600" />
-                              <span className="text-xs font-semibold text-slate-600">Keamanan Ganda</span>
-                              <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">OPSIONAL</span>
+                          {/* Toggle header */}
+                          <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-slate-50 border border-slate-200">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                                <ScanFace className="w-3.5 h-3.5 text-emerald-600" />
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-slate-700">Keamanan Ganda</p>
+                                <p className="text-[10px] text-slate-400">Tambahkan Face Lock sebagai lapisan kedua</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md hidden sm:inline">OPSIONAL</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = !showFaceLockOption;
+                                  setShowFaceLockOption(next);
+                                  if (!next) setEmbedFaceDescriptor(null);
+                                }}
+                                className="relative cursor-pointer shrink-0"
+                                title={showFaceLockOption ? 'Nonaktifkan Keamanan Ganda' : 'Aktifkan Keamanan Ganda'}
+                              >
+                                <div className={`w-11 h-6 rounded-full transition-colors duration-200 ${showFaceLockOption ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                                <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${showFaceLockOption ? 'translate-x-5' : 'translate-x-0'}`} />
+                              </button>
                             </div>
                           </div>
 
-                          {!embedFaceDescriptor ? (
-                            <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4 flex flex-col items-center gap-3">
-                              <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
-                                <ScanFace className="w-6 h-6 text-emerald-500" />
-                              </div>
-                              <div className="text-center">
-                                <p className="text-xs font-semibold text-slate-600">Aktifkan Face Lock</p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }}
-                                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-[0.98] cursor-pointer shadow-sm shadow-emerald-200"
-                              >
-                                <Camera className="w-3.5 h-3.5" />
-                                Scan Wajah Sekarang
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
-                                <CheckCircle className="w-5 h-5 text-emerald-500" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-bold text-emerald-700">Face Lock Aktif ✓</p>
-                                <p className="text-[11px] text-emerald-600/80 mt-0.5">128 vektor fitur wajah siap dienkripsi</p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setEmbedFaceDescriptor(null)}
-                                className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer shrink-0"
-                                title="Hapus face lock"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }}
-                                className="p-1.5 rounded-lg hover:bg-emerald-100 text-emerald-500 transition-all cursor-pointer shrink-0"
-                                title="Scan ulang"
-                              >
-                                <RefreshCw className="w-3.5 h-3.5" />
-                              </button>
+                          {/* Face lock content — visible when toggle ON */}
+                          {showFaceLockOption && (
+                            <div className="mt-3 animate-slideDown">
+                              {!embedFaceDescriptor ? (
+                                <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-6 flex flex-col items-center gap-4">
+                                  <div className="w-16 h-16 rounded-2xl bg-emerald-100 flex items-center justify-center">
+                                    <ScanFace className="w-8 h-8 text-emerald-500" />
+                                  </div>
+                                  <div className="text-center">
+                                    <p className="text-sm font-bold text-slate-700">Aktifkan Face Lock</p>
+                                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                                      Scan wajah Anda untuk mengunci file.<br />Hanya wajah yang terdaftar yang bisa membuka file ini.
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }}
+                                    className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98] cursor-pointer shadow-md shadow-emerald-200"
+                                  >
+                                    <Camera className="w-4 h-4" />
+                                    Scan Wajah Sekarang
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                                      <CheckCircle className="w-6 h-6 text-emerald-500" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-bold text-emerald-700">Face Lock Aktif ✓</p>
+                                      <p className="text-xs text-emerald-600/80 mt-0.5">128 vektor fitur wajah siap dienkripsi</p>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }}
+                                        className="p-2 rounded-lg hover:bg-emerald-100 text-emerald-500 transition-all cursor-pointer"
+                                        title="Scan ulang"
+                                      >
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEmbedFaceDescriptor(null)}
+                                        className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer"
+                                        title="Hapus face lock"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1950,9 +1987,11 @@ export function App() {
                         <div className="grid grid-cols-2 gap-2">
                           <button
                             type="button"
-                            onClick={() => { setDecryptKeyType('password'); setDecryptPassword(''); }}
+                            onClick={() => { if (decryptKeyType === 'keyfile' && decryptPassword) return; setDecryptKeyType('password'); setDecryptPassword(''); }}
+                            disabled={decryptKeyType === 'keyfile' && !!decryptPassword}
                             className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
-                              ${decryptKeyType === 'password' ? 'border-violet-400 bg-violet-50/60' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                              ${decryptKeyType === 'password' ? 'border-violet-400 bg-violet-50/60' : 'border-slate-200 bg-white hover:border-slate-300'}
+                              ${decryptKeyType === 'keyfile' && decryptPassword ? 'opacity-40 cursor-not-allowed' : ''}`}
                           >
                             {decryptKeyType === 'password' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-violet-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
                             <Lock className={`w-4 h-4 shrink-0 ${decryptKeyType === 'password' ? 'text-violet-500' : 'text-slate-400'}`} />
@@ -1963,9 +2002,11 @@ export function App() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => { setDecryptKeyType('keyfile'); setDecryptPassword(''); }}
+                            onClick={() => { if (decryptKeyType === 'password' && decryptPassword) return; setDecryptKeyType('keyfile'); setDecryptPassword(''); }}
+                            disabled={decryptKeyType === 'password' && !!decryptPassword}
                             className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
-                              ${decryptKeyType === 'keyfile' ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                              ${decryptKeyType === 'keyfile' ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 bg-white hover:border-slate-300'}
+                              ${decryptKeyType === 'password' && decryptPassword ? 'opacity-40 cursor-not-allowed' : ''}`}
                           >
                             {decryptKeyType === 'keyfile' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-emerald-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
                             <KeyRound className={`w-4 h-4 shrink-0 ${decryptKeyType === 'keyfile' ? 'text-emerald-500' : 'text-slate-400'}`} />
@@ -1975,6 +2016,12 @@ export function App() {
                             </div>
                           </button>
                         </div>
+                        {decryptPassword && (
+                          <p className="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5" />
+                            Metode kunci terkunci setelah diisi. Hapus file stego untuk mengulang.
+                          </p>
+                        )}
                       </div>
                     )}
 
@@ -1982,16 +2029,31 @@ export function App() {
                     {decryptKeyType === 'password' && (
                       <div className="relative animate-slideDown">
                         <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input
-                          type={showDecryptPassword ? 'text' : 'password'}
-                          value={decryptPassword}
-                          onChange={(e) => setDecryptPassword(e.target.value)}
-                          placeholder="Masukkan password..."
-                          className="focus-ring-accent w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-violet-300 transition-all"
-                        />
-                        <button onClick={() => setShowDecryptPassword(!showDecryptPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
-                          {showDecryptPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
+                        {decryptPassword ? (
+                          /* Read-only state: password locked, cannot be changed */
+                          <div className="w-full bg-slate-100 border border-slate-200 rounded-xl pl-10 pr-12 py-3 flex items-center justify-between">
+                            <span className="text-sm text-slate-500 tracking-widest select-none">
+                              {Array(Math.min(decryptPassword.length, 16)).fill('●').join('')}
+                            </span>
+                            <div className="flex items-center gap-1 px-2 py-0.5 bg-slate-200 rounded-md">
+                              <Lock className="w-3 h-3 text-slate-500" />
+                              <span className="text-[10px] font-bold text-slate-600">Terkunci</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <input
+                              type={showDecryptPassword ? 'text' : 'password'}
+                              value={decryptPassword}
+                              onChange={(e) => setDecryptPassword(e.target.value)}
+                              placeholder="Masukkan password..."
+                              className="focus-ring-accent w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-violet-300 transition-all"
+                            />
+                            <button onClick={() => setShowDecryptPassword(!showDecryptPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
+                              {showDecryptPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
 
@@ -2020,16 +2082,14 @@ export function App() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-bold text-emerald-700">Key berhasil dimuat ✓</p>
-                              <p className="text-[10px] text-emerald-600/80 mt-0.5">Siap digunakan untuk dekripsi</p>
+                              <p className="text-[10px] text-emerald-600/80 mt-0.5">
+                                {Array(Math.min(decryptPassword.length, 20)).fill('●').join('')}
+                              </p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => { setDecryptPassword(''); if (keyFileInputRef.current) keyFileInputRef.current.value = ''; }}
-                              className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer shrink-0"
-                              title="Hapus key"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center gap-1 px-2 py-1 bg-emerald-100 rounded-lg">
+                              <Lock className="w-3 h-3 text-emerald-600" />
+                              <span className="text-[10px] font-bold text-emerald-700">Terkunci</span>
+                            </div>
                           </div>
                         )}
                       </div>
