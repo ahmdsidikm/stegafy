@@ -569,6 +569,9 @@ export function App() {
   const [allDecryptPreviewsOpen, setAllDecryptPreviewsOpen] = useState(false);
   const [decryptMethod, setDecryptMethod] = useState<EncryptionMethod>('xor');
 
+  // Password toggle slider
+  const [useEmbedPassword, setUseEmbedPassword] = useState(false);
+
   // Key type state (embed)
   const [embedKeyType, setEmbedKeyType] = useState<'password' | 'generate'>('password');
   const [generatedKey, setGeneratedKey] = useState<string>('');
@@ -1532,201 +1535,223 @@ export function App() {
 
                 {/* Step 3: Password + Encryption Method (combined) */}
                 <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
+                  {/* Header with slider toggle */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2.5">
                       <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">3</div>
                       <h3 className="text-sm font-bold text-slate-700">Password & Keamanan</h3>
                       <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wide">Opsional</span>
                     </div>
-                    {embedPassword && (
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wide ${
-                        embedMethod === 'aes' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'
-                      }`}>
-                        {embedMethod === 'aes' ? 'AES-256 + Argon2' : 'XOR'}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Password input */}
-                  {/* Key type toggle - only visible when Mode Pro is selected */}
-                  {embedMethod === 'aes' && (
-                    <div className="mb-3 animate-slideDown">
-                      <label className="text-xs font-semibold text-slate-500 mb-2 block">Jenis Kunci Enkripsi</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => { setEmbedKeyType('password'); if (generatedKey) { setEmbedPassword(''); setGeneratedKey(''); } }}
-                          className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
-                            ${embedKeyType === 'password' ? 'border-orange-400 bg-orange-50/60' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
-                        >
-                          {embedKeyType === 'password' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-orange-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
-                          <Lock className={`w-4 h-4 shrink-0 ${embedKeyType === 'password' ? 'text-orange-500' : 'text-slate-400'}`} />
-                          <div>
-                            <p className={`text-xs font-bold ${embedKeyType === 'password' ? 'text-orange-700' : 'text-slate-600'}`}>Password</p>
-                            <p className={`text-[10px] ${embedKeyType === 'password' ? 'text-orange-500/80' : 'text-slate-400'}`}>Ketik manual</p>
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setEmbedKeyType('generate'); setEmbedPassword(''); setGeneratedKey(''); setGeneratedKeyUrl(''); }}
-                          className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
-                            ${embedKeyType === 'generate' ? 'border-violet-400 bg-violet-50/60' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
-                        >
-                          {embedKeyType === 'generate' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-violet-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
-                          <KeyRound className={`w-4 h-4 shrink-0 ${embedKeyType === 'generate' ? 'text-violet-500' : 'text-slate-400'}`} />
-                          <div>
-                            <p className={`text-xs font-bold ${embedKeyType === 'generate' ? 'text-violet-700' : 'text-slate-600'}`}>Buat Key</p>
-                            <p className={`text-[10px] ${embedKeyType === 'generate' ? 'text-violet-500/80' : 'text-slate-400'}`}>Auto-generate</p>
-                          </div>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Manual password input (shown when keyType === 'password' OR mode standar) */}
-                  {(embedKeyType === 'password' || embedMethod !== 'aes') && (
-                  <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input
-                      type={showEmbedPassword ? 'text' : 'password'}
-                      value={embedPassword}
-                      onChange={(e) => setEmbedPassword(e.target.value)}
-                      placeholder="Masukkan password..."
-                      className="focus-ring w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-orange-300 transition-all"
-                    />
-                    <button onClick={() => setShowEmbedPassword(!showEmbedPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
-                      {showEmbedPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {/* Slider toggle */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !useEmbedPassword;
+                        setUseEmbedPassword(next);
+                        if (!next) {
+                          setEmbedPassword('');
+                          setEmbedKeyType('password');
+                          setGeneratedKey('');
+                          setGeneratedKeyUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return ''; });
+                          setEmbedFaceDescriptor(null);
+                          resetStegoResult();
+                        }
+                      }}
+                      className="relative cursor-pointer shrink-0"
+                      title={useEmbedPassword ? 'Matikan enkripsi' : 'Aktifkan enkripsi'}
+                    >
+                      <div className={`w-11 h-6 rounded-full transition-colors duration-200 ${useEmbedPassword ? 'bg-orange-500' : 'bg-slate-200'}`} />
+                      <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${useEmbedPassword ? 'translate-x-5' : 'translate-x-0'}`} />
                     </button>
                   </div>
-                  )}
 
-                  {/* Generate Key UI */}
-                  {embedMethod === 'aes' && embedKeyType === 'generate' && (
-                    <div className="animate-slideDown space-y-2.5">
-                      {!generatedKey ? (
-                        <button
-                          type="button"
-                          onClick={generateRandomKey}
-                          className="w-full flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98] cursor-pointer shadow-md shadow-violet-200"
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                          Generate Key (50 karakter)
-                        </button>
-                      ) : (
-                        <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-semibold text-violet-700 flex items-center gap-1.5"><CheckCircle className="w-3.5 h-3.5" />Key berhasil dibuat!</span>
-                            <button type="button" onClick={generateRandomKey} className="text-[11px] text-violet-500 hover:text-violet-700 font-semibold flex items-center gap-1 cursor-pointer"><RefreshCw className="w-3 h-3" />Generate ulang</button>
-                          </div>
-                          {/* Key preview (masked) */}
-                          <div className="bg-white border border-violet-100 rounded-lg px-3 py-2 font-mono text-xs text-slate-500 tracking-widest overflow-hidden">
-                            {'●'.repeat(Math.min(generatedKey.length, 50))}
-                          </div>
-                          <div className="flex items-start gap-2 px-2.5 py-2 bg-amber-50 border border-amber-100 rounded-lg">
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-                            <p className="text-[10px] text-amber-700 leading-snug font-medium">Simpan file <strong>key.sty</strong> ini! Tanpanya kamu tidak bisa mendekripsi file nantinya.</p>
-                          </div>
-                          <a
-                            href={generatedKeyUrl}
-                            download="key.sty"
-                            className="w-full flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white py-2.5 rounded-xl text-xs font-bold transition-all active:scale-[0.98]"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            Unduh key.sty
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Password strength indicator */}
-                  {embedKeyType === 'password' && <PasswordStrengthIndicator password={embedPassword} />}
-
-                  {/* ── Face Lock (hanya Mode Pro / AES) ── */}
-                  {embedMethod === 'aes' && (embedPassword || (embedKeyType === 'generate' && generatedKey)) && (
-                    <div className="mt-4 animate-slideDown">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-1.5">
-                          <ScanFace className="w-3.5 h-3.5 text-emerald-600" />
-                          <span className="text-xs font-semibold text-slate-600">Keamanan Ganda</span>
-                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">OPSIONAL</span>
-                        </div>
-                      </div>
-
-                      {!embedFaceDescriptor ? (
-                        <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4 flex flex-col items-center gap-3">
-                          <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
-                            <ScanFace className="w-6 h-6 text-emerald-500" />
-                          </div>
-                          <div className="text-center">
-                            <p className="text-xs font-semibold text-slate-600">Aktifkan Face Lock</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }}
-                            className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-[0.98] cursor-pointer shadow-sm shadow-emerald-200"
-                          >
-                            <Camera className="w-3.5 h-3.5" />
-                            Scan Wajah Sekarang
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
-                            <CheckCircle className="w-5 h-5 text-emerald-500" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-emerald-700">Face Lock Aktif ✓</p>
-                            <p className="text-[11px] text-emerald-600/80 mt-0.5">128 vektor fitur wajah siap dienkripsi</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setEmbedFaceDescriptor(null)}
-                            className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer shrink-0"
-                            title="Hapus face lock"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }}
-                            className="p-1.5 rounded-lg hover:bg-emerald-100 text-emerald-500 transition-all cursor-pointer shrink-0"
-                            title="Scan ulang"
-                          >
-                            <RefreshCw className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Encryption method selector (below password) */}
-                  <div className="mt-4">
-                    <div className="flex items-center justify-between mb-2.5">
-                      <label className="text-xs font-semibold text-slate-500">Jenis Keamanan</label>
-                      {!embedPassword && (
-                        <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                          <Lock className="w-3 h-3" />
-                          Jika tidak memakai password, file tidak di enkripsi
-                        </span>
-                      )}
-                    </div>
-                    {renderEncryptionMethodSelector(
-                      embedMethod,
-                      (m) => { setEmbedMethod(m); resetStegoResult(); if (m !== 'aes') { setEmbedKeyType('password'); setGeneratedKey(''); setGeneratedKeyUrl(''); } },
-                      !embedPassword && !(embedKeyType === 'generate' && generatedKey)
-                    )}
-                  </div>
-
-                  {/* Security info for AES + Argon2 */}
-                  {(embedPassword || (embedKeyType === 'generate' && generatedKey)) && embedMethod === 'aes' && (
-                    <div className="mt-3 flex items-start gap-2 px-3 py-2.5 bg-emerald-50/60 border border-emerald-200 rounded-xl animate-fadeIn">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                  {/* Password & Keamanan content — only visible when toggle ON */}
+                  {useEmbedPassword && (
+                    <div className="space-y-3 animate-slideDown">
+                      {/* Encryption method selector */}
                       <div>
-                        <p className="text-[11px] font-semibold text-emerald-700">Argon2 + AES-256-GCM</p>
-                        <p className="text-[10px] text-emerald-600/80 mt-0.5">Key derivation menggunakan Argon2 (memory-hard) untuk perlindungan maksimal terhadap brute-force.</p>
+                        <div className="flex items-center justify-between mb-2.5">
+                          <label className="text-xs font-semibold text-slate-500">Jenis Keamanan</label>
+                          {(embedPassword || (embedKeyType === 'generate' && generatedKey)) && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wide ${
+                              embedMethod === 'aes' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'
+                            }`}>
+                              {embedMethod === 'aes' ? 'AES-256 + Argon2' : 'XOR'}
+                            </span>
+                          )}
+                        </div>
+                        {renderEncryptionMethodSelector(
+                          embedMethod,
+                          (m) => { setEmbedMethod(m); resetStegoResult(); if (m !== 'aes') { setEmbedKeyType('password'); setGeneratedKey(''); setGeneratedKeyUrl(''); } },
+                          false
+                        )}
                       </div>
+
+                      {/* Key type toggle - only visible when Mode Pro is selected */}
+                      {embedMethod === 'aes' && (
+                        <div className="animate-slideDown">
+                          <label className="text-xs font-semibold text-slate-500 mb-2 block">Jenis Kunci Enkripsi</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => { setEmbedKeyType('password'); if (generatedKey) { setEmbedPassword(''); setGeneratedKey(''); setGeneratedKeyUrl(''); } }}
+                              className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
+                                ${embedKeyType === 'password' ? 'border-orange-400 bg-orange-50/60' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
+                            >
+                              {embedKeyType === 'password' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-orange-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
+                              <Lock className={`w-4 h-4 shrink-0 ${embedKeyType === 'password' ? 'text-orange-500' : 'text-slate-400'}`} />
+                              <div>
+                                <p className={`text-xs font-bold ${embedKeyType === 'password' ? 'text-orange-700' : 'text-slate-600'}`}>Password</p>
+                                <p className={`text-[10px] ${embedKeyType === 'password' ? 'text-orange-500/80' : 'text-slate-400'}`}>Ketik manual</p>
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setEmbedKeyType('generate'); setEmbedPassword(''); setGeneratedKey(''); setGeneratedKeyUrl(''); }}
+                              className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
+                                ${embedKeyType === 'generate' ? 'border-violet-400 bg-violet-50/60' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
+                            >
+                              {embedKeyType === 'generate' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-violet-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
+                              <KeyRound className={`w-4 h-4 shrink-0 ${embedKeyType === 'generate' ? 'text-violet-500' : 'text-slate-400'}`} />
+                              <div>
+                                <p className={`text-xs font-bold ${embedKeyType === 'generate' ? 'text-violet-700' : 'text-slate-600'}`}>Buat Key</p>
+                                <p className={`text-[10px] ${embedKeyType === 'generate' ? 'text-violet-500/80' : 'text-slate-400'}`}>Auto-generate</p>
+                              </div>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Manual password input */}
+                      {(embedKeyType === 'password' || embedMethod !== 'aes') && (
+                        <div className="relative">
+                          <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                          <input
+                            type={showEmbedPassword ? 'text' : 'password'}
+                            value={embedPassword}
+                            onChange={(e) => setEmbedPassword(e.target.value)}
+                            placeholder="Masukkan password..."
+                            className="focus-ring w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-orange-300 transition-all"
+                          />
+                          <button onClick={() => setShowEmbedPassword(!showEmbedPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
+                            {showEmbedPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Password strength */}
+                      {embedKeyType === 'password' && <PasswordStrengthIndicator password={embedPassword} />}
+
+                      {/* Generate Key UI — NO key shown here, download moved to hasil */}
+                      {embedMethod === 'aes' && embedKeyType === 'generate' && (
+                        <div className="animate-slideDown">
+                          {!generatedKey ? (
+                            <button
+                              type="button"
+                              onClick={generateRandomKey}
+                              className="w-full flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98] cursor-pointer shadow-md shadow-violet-200"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                              Generate Key (50 karakter)
+                            </button>
+                          ) : (
+                            <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-semibold text-violet-700 flex items-center gap-1.5">
+                                  <CheckCircle className="w-3.5 h-3.5" />Key siap digunakan!
+                                </span>
+                                <button type="button" onClick={generateRandomKey} className="text-[11px] text-violet-500 hover:text-violet-700 font-semibold flex items-center gap-1 cursor-pointer">
+                                  <RefreshCw className="w-3 h-3" />Generate ulang
+                                </button>
+                              </div>
+                              <div className="flex items-start gap-2 px-2.5 py-2 bg-amber-50 border border-amber-100 rounded-lg">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                                <p className="text-[10px] text-amber-700 leading-snug font-medium">
+                                  File <strong>key.sty</strong> bisa diunduh di kolom hasil setelah enkripsi selesai.
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Security info for AES + Argon2 */}
+                      {(embedPassword || (embedKeyType === 'generate' && generatedKey)) && embedMethod === 'aes' && (
+                        <div className="flex items-start gap-2 px-3 py-2.5 bg-emerald-50/60 border border-emerald-200 rounded-xl animate-fadeIn">
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-[11px] font-semibold text-emerald-700">Argon2 + AES-256-GCM</p>
+                            <p className="text-[10px] text-emerald-600/80 mt-0.5">Key derivation menggunakan Argon2 (memory-hard) untuk perlindungan maksimal terhadap brute-force.</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ── Face Lock (hanya Mode Pro / AES) ── */}
+                      {embedMethod === 'aes' && (embedPassword || (embedKeyType === 'generate' && generatedKey)) && (
+                        <div className="animate-slideDown">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1.5">
+                              <ScanFace className="w-3.5 h-3.5 text-emerald-600" />
+                              <span className="text-xs font-semibold text-slate-600">Keamanan Ganda</span>
+                              <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">OPSIONAL</span>
+                            </div>
+                          </div>
+
+                          {!embedFaceDescriptor ? (
+                            <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4 flex flex-col items-center gap-3">
+                              <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+                                <ScanFace className="w-6 h-6 text-emerald-500" />
+                              </div>
+                              <div className="text-center">
+                                <p className="text-xs font-semibold text-slate-600">Aktifkan Face Lock</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }}
+                                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-[0.98] cursor-pointer shadow-sm shadow-emerald-200"
+                              >
+                                <Camera className="w-3.5 h-3.5" />
+                                Scan Wajah Sekarang
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                                <CheckCircle className="w-5 h-5 text-emerald-500" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold text-emerald-700">Face Lock Aktif ✓</p>
+                                <p className="text-[11px] text-emerald-600/80 mt-0.5">128 vektor fitur wajah siap dienkripsi</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setEmbedFaceDescriptor(null)}
+                                className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer shrink-0"
+                                title="Hapus face lock"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }}
+                                className="p-1.5 rounded-lg hover:bg-emerald-100 text-emerald-500 transition-all cursor-pointer shrink-0"
+                                title="Scan ulang"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
+                  )}
+
+                  {/* Disabled state hint */}
+                  {!useEmbedPassword && (
+                    <p className="text-xs text-slate-400 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5" />
+                      Aktifkan untuk mengenkripsi file dengan password atau key
+                    </p>
                   )}
                 </section>
 
@@ -1739,7 +1764,7 @@ export function App() {
                   {embedding ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      {embedPassword && embedMethod === 'aes'
+                      {(embedPassword || generatedKey) && embedMethod === 'aes'
                         ? 'Mengenkripsi dengan AES-256 + Argon2...'
                         : 'Menyembunyikan...'}
                     </>
@@ -1789,7 +1814,25 @@ export function App() {
                       <Shield className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                       <span className="text-[11px] font-semibold text-blue-700">Password telah dihapus dari memori</span>
                     </div>
-                    <a href={stegoResult.url} download={stegoOutputName || `stego_file.${stegoResult.extension}`} className="mt-4 w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-sm font-bold transition-colors active:scale-[0.98]">
+                    {/* Download key.sty — muncul jika enkripsi pakai generate key */}
+                    {embedKeyType === 'generate' && generatedKeyUrl && (
+                      <div className="mt-3 animate-fadeIn">
+                        <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl mb-2">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                          <p className="text-[10px] text-amber-700 font-medium leading-snug">
+                            Unduh <strong>key.sty</strong> sekarang! Tanpa file ini kamu tidak bisa membuka file nantinya.
+                          </p>
+                        </div>
+                        <a
+                          href={generatedKeyUrl}
+                          download="key.sty"
+                          className="w-full flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white py-2.5 rounded-xl text-sm font-bold transition-colors active:scale-[0.98]"
+                        >
+                          <KeyRound className="w-4 h-4" />Unduh key.sty
+                        </a>
+                      </div>
+                    )}
+                    <a href={stegoResult.url} download={stegoOutputName || `stego_file.${stegoResult.extension}`} className="mt-3 w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-sm font-bold transition-colors active:scale-[0.98]">
                       <Download className="w-4 h-4" />Unduh File
                     </a>
                   </section>
@@ -1975,7 +2018,7 @@ export function App() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-bold text-emerald-700">Key berhasil dimuat ✓</p>
-                              <p className="text-[10px] text-emerald-600/80 font-mono mt-0.5">{'●'.repeat(Math.min(decryptPassword.length, 30))}</p>
+                              <p className="text-[10px] text-emerald-600/80 mt-0.5">Siap digunakan untuk dekripsi</p>
                             </div>
                             <button
                               type="button"
