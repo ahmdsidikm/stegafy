@@ -1414,7 +1414,7 @@ export function App() {
               {activityLog.length === 0 ? (
                 <p className="text-xs text-slate-500 italic text-center py-6">Belum ada aktivitas tercatat.</p>
               ) : (
-                activityLog.map((entry, i) => (
+                activityLog.slice().reverse().map((entry, i) => (
                   <p
                     key={i}
                     className={`text-[11px] leading-relaxed font-mono break-all whitespace-pre-wrap ${
