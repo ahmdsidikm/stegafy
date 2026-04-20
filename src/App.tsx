@@ -1698,7 +1698,7 @@ export function App() {
                           </div>
 
                           {!embedFaceDescriptor ? (
-                            <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4 flex flex-col items-center gap-3">
+                            <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-5 pb-6 flex flex-col items-center gap-3">
                               <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
                                 <ScanFace className="w-6 h-6 text-emerald-500" />
                               </div>
@@ -1950,7 +1950,11 @@ export function App() {
                         <div className="grid grid-cols-2 gap-2">
                           <button
                             type="button"
-                            onClick={() => { setDecryptKeyType('password'); setDecryptPassword(''); }}
+                            onClick={() => { setDecryptKeyType('password'); setDecryptPonClick={() => {
+  if (decryptPassword) return;
+  setDecryptKeyType('password');
+  setDecryptPassword('');
+}}
                             className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
                               ${decryptKeyType === 'password' ? 'border-violet-400 bg-violet-50/60' : 'border-slate-200 bg-white hover:border-slate-300'}`}
                           >
@@ -1963,7 +1967,11 @@ export function App() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => { setDecryptKeyType('keyfile'); setDecryptPassword(''); }}
+                            onClick={() => {
+  if (decryptPassword) return;
+  setDecryptKeyType('keyfile');
+  setDecryptPassword('');
+}}
                             className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
                               ${decryptKeyType === 'keyfile' ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 bg-white hover:border-slate-300'}`}
                           >
@@ -1996,7 +2004,7 @@ export function App() {
                     )}
 
                     {/* Key file upload — untuk semua tipe enkripsi */}
-                    {decryptKeyType === 'keyfile' && (
+                    {decryptKeyType === 'keyfile' && !decryptPassword && (
                       <div className="animate-slideDown">
                         <input ref={keyFileInputRef} type="file" accept=".sty,.txt" className="hidden" onChange={handleKeyFileUpload} />
                         {!decryptPassword ? (
