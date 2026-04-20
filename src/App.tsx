@@ -1936,7 +1936,9 @@ export function App() {
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2.5">
                         <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">2</div>
-                        <h3 className="text-sm font-bold text-slate-700">Password & Keamanan</h3>
+                        <h3 className="text-sm font-bold text-slate-700">
+                          {decryptKeyType === 'keyfile' ? 'File Key' : 'Password & Keamanan'}
+                        </h3>
                       </div>
                       <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-wide">Diperlukan</span>
                     </div>
@@ -1976,21 +1978,21 @@ export function App() {
                       </div>
                     )}
 
-                    {/* Password input */}
+                    {/* Password input — hidden saat keyfile mode */}
                     {decryptKeyType === 'password' && (
-                    <div className="relative">
-                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input
-                        type={showDecryptPassword ? 'text' : 'password'}
-                        value={decryptPassword}
-                        onChange={(e) => setDecryptPassword(e.target.value)}
-                        placeholder="Masukkan password..."
-                        className="focus-ring-accent w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-violet-300 transition-all"
-                      />
-                      <button onClick={() => setShowDecryptPassword(!showDecryptPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
-                        {showDecryptPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
+                      <div className="relative animate-slideDown">
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type={showDecryptPassword ? 'text' : 'password'}
+                          value={decryptPassword}
+                          onChange={(e) => setDecryptPassword(e.target.value)}
+                          placeholder="Masukkan password..."
+                          className="focus-ring-accent w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-violet-300 transition-all"
+                        />
+                        <button onClick={() => setShowDecryptPassword(!showDecryptPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
+                          {showDecryptPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     )}
 
                     {/* Key file upload */}
