@@ -1539,17 +1539,29 @@ export function App() {
               <p className="text-[11px] text-slate-400 leading-tight hidden sm:block">Sembunyikan File</p>
             </div>
           </div>
-          <div className="flex bg-slate-100 rounded-xl p-1">
-            <button onClick={() => setActiveTab('embed')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'embed' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-              <LockKeyhole className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Sembunyikan</span>
-              <span className="sm:hidden">Embed</span>
-            </button>
-            <button onClick={() => setActiveTab('decrypt')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'decrypt' ? 'bg-white text-violet-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-              <Unlock className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Dekripsi</span>
-              <span className="sm:hidden">Decrypt</span>
-            </button>
+          <div className="flex items-center gap-2">
+            <a
+              href="about.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-slate-200 transition-all cursor-pointer"
+              title="Dokumentasi & Panduan"
+            >
+              <Info className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Tentang</span>
+            </a>
+            <div className="flex bg-slate-100 rounded-xl p-1">
+              <button onClick={() => setActiveTab('embed')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'embed' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                <LockKeyhole className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Sembunyikan</span>
+                <span className="sm:hidden">Embed</span>
+              </button>
+              <button onClick={() => setActiveTab('decrypt')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'decrypt' ? 'bg-white text-violet-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                <Unlock className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Dekripsi</span>
+                <span className="sm:hidden">Decrypt</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
