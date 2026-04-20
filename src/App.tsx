@@ -605,6 +605,49 @@ export function App() {
     setActivityLog((prev) => [...prev, `[${makeTs()}] ${entry}`]);
   }, []);
 
+  // Track previous comment values for detecting add vs edit
+  const prevEmbedCommentsRef = useRef<Record<number, string>>({});
+  const prevDecryptCommentsRef = useRef<Record<string, string>>({});
+  // Debounce timers for comment logging
+  const embedCommentLogTimerRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const decryptCommentLogTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  const logEmbedCommentChange = useCallback((index: number, fileName: string, newValue: string) => {
+    if (embedCommentLogTimerRef.current[index]) {
+      clearTimeout(embedCommentLogTimerRef.current[index]);
+    }
+    embedCommentLogTimerRef.current[index] = setTimeout(() => {
+      const prev = prevEmbedCommentsRef.current[index] ?? '';
+      if (newValue === prev) return;
+      if (!prev && newValue) {
+        addLog(`Komentar ditambahkan pada file embed "${fileName}"`);
+      } else if (prev && !newValue) {
+        addLog(`Komentar dihapus pada file embed "${fileName}"`);
+      } else {
+        addLog(`Komentar diedit pada file embed "${fileName}"`);
+      }
+      prevEmbedCommentsRef.current[index] = newValue;
+    }, 800);
+  }, [addLog]);
+
+  const logDecryptCommentChange = useCallback((fileId: string, fileName: string, newValue: string) => {
+    if (decryptCommentLogTimerRef.current[fileId]) {
+      clearTimeout(decryptCommentLogTimerRef.current[fileId]);
+    }
+    decryptCommentLogTimerRef.current[fileId] = setTimeout(() => {
+      const prev = prevDecryptCommentsRef.current[fileId] ?? '';
+      if (newValue === prev) return;
+      if (!prev && newValue) {
+        addLog(`Komentar ditambahkan pada file dekripsi "${fileName}"`);
+      } else if (prev && !newValue) {
+        addLog(`Komentar dihapus pada file dekripsi "${fileName}"`);
+      } else {
+        addLog(`Komentar diedit pada file dekripsi "${fileName}"`);
+      }
+      prevDecryptCommentsRef.current[fileId] = newValue;
+    }, 800);
+  }, [addLog]);
+
   const coverInputRef = useRef<HTMLInputElement>(null);
   const secretInputRef = useRef<HTMLInputElement>(null);
   const stegoInputRef = useRef<HTMLInputElement>(null);
@@ -780,7 +823,12 @@ export function App() {
   const toggleEditComment = (fileId: string) => {
     setEditingComments((prev) => {
       const next = new Set(prev);
-      if (next.has(fileId)) next.delete(fileId); else next.add(fileId);
+      if (next.has(fileId)) {
+        // Closing edit mode — log "Selesai" if comment changed
+        next.delete(fileId);
+      } else {
+        next.add(fileId);
+      }
       return next;
     });
   };
@@ -799,7 +847,11 @@ export function App() {
   };
 
   const updateDecryptedFileComment = (fileId: string, comment: string) => {
-    setDecryptedFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, comment } : f)));
+    setDecryptedFiles((prev) => {
+      const file = prev.find((f) => f.id === fileId);
+      if (file) logDecryptCommentChange(fileId, file.name, comment);
+      return prev.map((f) => (f.id === fileId ? { ...f, comment } : f));
+    });
     setModified(true);
   };
 
@@ -1027,6 +1079,8 @@ export function App() {
       if (faceDescriptor) setStoredFaceDescriptor(faceDescriptor);
 
       setDecryptedFiles(files);
+      // Initialize previous comment tracking so we can detect add vs edit
+      prevDecryptCommentsRef.current = Object.fromEntries(files.map((f) => [f.id, f.comment ?? '']));
       setModified(false);
       setOpenedDecryptPreviews(new Set());
       setEditingComments(new Set());
@@ -1619,7 +1673,7 @@ export function App() {
                               <div className="px-3 pb-3 animate-slideDown">
                                 <div className="relative">
                                   <MessageSquare className="absolute left-3 top-3 w-3.5 h-3.5 text-slate-400" />
-                                  <textarea value={comment} onChange={(e) => { setEmbedComments((prev) => ({ ...prev, [index]: e.target.value })); resetStegoResult(); }} placeholder="Tambahkan komentar untuk file ini..." rows={2} className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-700 placeholder-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-100 transition-all resize-none outline-none" />
+                                  <textarea value={comment} onChange={(e) => { const newVal = e.target.value; setEmbedComments((prev) => ({ ...prev, [index]: newVal })); logEmbedCommentChange(index, getEmbedFileName(index), newVal); resetStegoResult(); }} placeholder="Tambahkan komentar untuk file ini..." rows={2} className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs text-slate-700 placeholder-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-100 transition-all resize-none outline-none" />
                                 </div>
                               </div>
                             )}
