@@ -577,7 +577,8 @@ export async function embedFiles(
   password?: string,
   comments?: Record<number, string>,
   method?: EncryptionMethod,
-  faceDescriptor?: Float32Array
+  faceDescriptor?: Float32Array,
+  log?: string[]
 ): Promise<{ blob: Blob; extension: string }> {
   const coverBuffer = await readFileAsArrayBuffer(coverFile);
 
@@ -601,6 +602,17 @@ export async function embedFiles(
         comment: comments?.[i] || undefined,
       });
     }
+    // Encode log as a special sentinel entry for XOR mode
+    if (log && log.length > 0) {
+      const logJson = JSON.stringify(log);
+      const logBytes = new TextEncoder().encode(logJson);
+      filesForRaw.push({
+        name: '__log__',
+        type: 'application/json',
+        data: logBytes.buffer as ArrayBuffer,
+        comment: '',
+      });
+    }
     const rawBytes = serializeFilesRaw(filesForRaw);
     payloadBytes = xorEncrypt(rawBytes, password);
     methodFlag = 0x01;
@@ -617,7 +629,7 @@ export async function embedFiles(
         comment: comments?.[i] || undefined,
       });
     }
-    const payloadJson = JSON.stringify({ files: filesData });
+    const payloadJson = JSON.stringify({ files: filesData, log: log || [] });
     const plainBytes = new TextEncoder().encode(payloadJson);
     payloadBytes = await aesEncrypt(plainBytes, password);
     methodFlag = 0x02;
@@ -634,7 +646,7 @@ export async function embedFiles(
         comment: comments?.[i] || undefined,
       });
     }
-    const payloadJson = JSON.stringify({ files: filesData });
+    const payloadJson = JSON.stringify({ files: filesData, log: log || [] });
     payloadBytes = new TextEncoder().encode(payloadJson);
     methodFlag = 0x00;
   }
@@ -731,7 +743,7 @@ export async function extractFiles(
   buffer: ArrayBuffer,
   password?: string,
   method?: EncryptionMethod | null
-): Promise<{ files: HiddenFile[]; faceDescriptor: Float32Array | null }> {
+): Promise<{ files: HiddenFile[]; faceDescriptor: Float32Array | null; log: string[] }> {
   const uint8 = new Uint8Array(buffer);
 
   if (uint8.length < 10) {
@@ -777,20 +789,31 @@ export async function extractFiles(
   const payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize));
 
   let files: HiddenFile[];
+  let log: string[] = [];
 
   if (methodFlag === 0x01) {
     if (!password) throw new Error('File ini memerlukan password (XOR).');
     const decrypted = xorEncrypt(payloadBytes, password);
     try {
       const raw = deserializeFilesRaw(decrypted);
-      files = raw.map((f) => ({
-        id: generateId(),
-        name: f.name,
-        size: f.data.byteLength,
-        type: f.type,
-        data: f.data,
-        comment: f.comment || '',
-      }));
+      // Extract log sentinel if present
+      const logEntry = raw.find((f) => f.name === '__log__');
+      if (logEntry) {
+        try {
+          const logText = new TextDecoder().decode(new Uint8Array(logEntry.data));
+          log = JSON.parse(logText);
+        } catch { log = []; }
+      }
+      files = raw
+        .filter((f) => f.name !== '__log__')
+        .map((f) => ({
+          id: generateId(),
+          name: f.name,
+          size: f.data.byteLength,
+          type: f.type,
+          data: f.data,
+          comment: f.comment || '',
+        }));
     } catch {
       throw new Error('Gagal membaca data tersembunyi. Password mungkin salah atau file rusak.');
     }
@@ -813,6 +836,7 @@ export async function extractFiles(
     if (!payloadObj.files || !Array.isArray(payloadObj.files)) {
       throw new Error('Format data tidak valid.');
     }
+    log = Array.isArray(payloadObj.log) ? payloadObj.log : [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     files = payloadObj.files.map((f: any) => ({
       id: generateId(),
@@ -839,6 +863,7 @@ export async function extractFiles(
     if (!payloadObj.files || !Array.isArray(payloadObj.files)) {
       throw new Error('Format data tidak valid.');
     }
+    log = Array.isArray(payloadObj.log) ? payloadObj.log : [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     files = payloadObj.files.map((f: any) => ({
       id: generateId(),
@@ -850,7 +875,7 @@ export async function extractFiles(
     }));
   }
 
-  return { files, faceDescriptor };
+  return { files, faceDescriptor, log };
 }
 
 export async function reEmbedFiles(
@@ -858,7 +883,8 @@ export async function reEmbedFiles(
   files: HiddenFile[],
   password?: string,
   method?: EncryptionMethod,
-  faceDescriptor?: Float32Array | null
+  faceDescriptor?: Float32Array | null,
+  log?: string[]
 ): Promise<Blob> {
   const uint8 = new Uint8Array(stegoBuffer);
 
@@ -884,6 +910,17 @@ export async function reEmbedFiles(
     const filesForRaw = files.map((f) => ({
       name: f.name, type: f.type, data: f.data, comment: f.comment || undefined,
     }));
+    // Encode log as sentinel entry for XOR mode
+    if (log && log.length > 0) {
+      const logJson = JSON.stringify(log);
+      const logBytes = new TextEncoder().encode(logJson);
+      filesForRaw.push({
+        name: '__log__',
+        type: 'application/json',
+        data: logBytes.buffer as ArrayBuffer,
+        comment: undefined,
+      });
+    }
     const rawBytes = serializeFilesRaw(filesForRaw);
     payloadBytes = xorEncrypt(rawBytes, password);
     methodFlag = 0x01;
@@ -892,7 +929,7 @@ export async function reEmbedFiles(
       name: f.name, type: f.type, size: f.size,
       dataBase64: arrayBufferToBase64(f.data), comment: f.comment || undefined,
     }));
-    const payloadJson = JSON.stringify({ files: filesData });
+    const payloadJson = JSON.stringify({ files: filesData, log: log || [] });
     const plainBytes = new TextEncoder().encode(payloadJson);
     payloadBytes = await aesEncrypt(plainBytes, password);
     methodFlag = 0x02;
@@ -901,7 +938,7 @@ export async function reEmbedFiles(
       name: f.name, type: f.type, size: f.size,
       dataBase64: arrayBufferToBase64(f.data), comment: f.comment || undefined,
     }));
-    const payloadJson = JSON.stringify({ files: filesData });
+    const payloadJson = JSON.stringify({ files: filesData, log: log || [] });
     payloadBytes = new TextEncoder().encode(payloadJson);
     methodFlag = 0x00;
   }
