@@ -1927,7 +1927,7 @@ export function App() {
                       <div className="flex items-center gap-2.5">
                         <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center text-xs font-bold">2</div>
                         <h3 className="text-sm font-bold text-slate-700">
-                          {decryptKeyType === 'keyfile' ? 'File Key' : 'Kunci Dekripsi'}
+                          {decryptKeyType === 'keyfile' ? 'File Key' : 'Password & Keamanan'}
                         </h3>
                       </div>
                       <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-wide">Diperlukan</span>
@@ -2114,19 +2114,91 @@ export function App() {
                   </div>
                 )}
 
-                {/* Jenis Keamanan - shown after decryption (read-only) */}
-                {decryptionDone && detectedMethod && (
+                {/* Update password section - shown after decryption */}
+                {decryptionDone && (
                   <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
                     <div className="flex items-center gap-2.5 mb-3">
-                      <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center">
-                        <Shield className="w-3.5 h-3.5" />
+                      <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-500 flex items-center justify-center">
+                        <KeyRound className="w-3.5 h-3.5" />
                       </div>
-                      <h3 className="text-sm font-bold text-slate-700">Jenis Keamanan</h3>
+                      <h3 className="text-sm font-bold text-slate-700">Ubah Password & Keamanan</h3>
+                      <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wide">Opsional</span>
                     </div>
-                    {renderEncryptionMethodSelector(detectedMethod, () => {}, true)}
+                    <p className="text-xs text-slate-400 mb-3">Ubah password, metode enkripsi, lalu unduh file cover yang diperbarui.</p>
+
+                    {/* New password */}
+                    <div className="relative">
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type={showNewPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => {
+                          setNewPassword(e.target.value);
+                          setPasswordChanged(e.target.value !== originalDecryptPassword || decryptMethod !== (detectedMethod || 'xor'));
+                        }}
+                        placeholder="Password baru..."
+                        className="focus-ring w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-amber-300 transition-all"
+                      />
+                      <button onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
+                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+
+                    {/* Password strength indicator for new password */}
+                    <PasswordStrengthIndicator password={newPassword} />
+
+                    {/* Method selector for re-embed */}
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between mb-2.5">
+                        <label className="text-xs font-semibold text-slate-500">Jenis Keamanan</label>
+                        {!newPassword && (
+                          <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                            <Lock className="w-3 h-3" />
+                            Isi password untuk memilih
+                          </span>
+                        )}
+                      </div>
+                      {renderEncryptionMethodSelector(
+                        decryptMethod,
+                        (m) => {
+                          setDecryptMethod(m);
+                          setPasswordChanged(newPassword !== originalDecryptPassword || m !== (detectedMethod || 'xor'));
+                        },
+                        !newPassword
+                      )}
+                    </div>
+
+                    {/* Security info for AES + Argon2 */}
+                    {newPassword && decryptMethod === 'aes' && (
+                      <div className="mt-3 flex items-start gap-2 px-3 py-2.5 bg-emerald-50/60 border border-emerald-200 rounded-xl animate-fadeIn">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-[11px] font-semibold text-emerald-700">Argon2 + AES-256-GCM</p>
+                          <p className="text-[10px] text-emerald-600/80 mt-0.5">Key derivation menggunakan Argon2 (memory-hard).</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {hasAnyChanges && (
+                      <button
+                        onClick={handleUpdateAndDownload}
+                        disabled={updating}
+                        className="mt-4 w-full bg-gradient-to-r from-amber-500 to-orange-500 text-white py-3 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-amber-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer animate-fadeIn"
+                      >
+                        {updating ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            {newPassword && decryptMethod === 'aes'
+                              ? 'Mengenkripsi ulang dengan AES-256 + Argon2...'
+                              : 'Memperbarui...'}
+                          </>
+                        ) : (
+                          <><RefreshCw className="w-4 h-4" />Perbarui & Unduh Cover</>
+                        )}
+                      </button>
+                    )}
                   </section>
                 )}
-
               </div>
 
               {/* Right column: results */}
