@@ -594,6 +594,7 @@ export function App() {
 
   // Activity log state (Mode Pro)
   const [activityLog, setActivityLog] = useState<string[]>([]);
+  const [showLogPopup, setShowLogPopup] = useState(false);
 
   const addLog = useCallback((entry: string) => {
     const now = new Date();
@@ -1379,6 +1380,50 @@ export function App() {
         </div>
       )}
 
+      {/* ====== LOG POPUP MODAL ====== */}
+      {showLogPopup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-overlayIn">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowLogPopup(false)} />
+          <div className="relative bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-scaleIn">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 flex items-center justify-center">
+                  <AlertCircle className="w-4 h-4 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">Log Aktivitas</h3>
+                  <p className="text-[11px] text-slate-400">{activityLog.length} entri tercatat</p>
+                </div>
+              </div>
+              <button onClick={() => setShowLogPopup(false)} className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-all cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 max-h-[420px] overflow-y-auto space-y-1">
+              {activityLog.length === 0 ? (
+                <p className="text-xs text-slate-500 italic text-center py-6">Belum ada aktivitas tercatat.</p>
+              ) : (
+                activityLog.map((entry, i) => (
+                  <p
+                    key={i}
+                    className={`text-[11px] leading-relaxed font-mono break-all whitespace-pre-wrap ${
+                      entry.includes('  -') ? 'text-slate-400 pl-3' :
+                      entry.includes('  +') ? 'text-emerald-400 pl-3' :
+                      entry.includes('Enkripsi') || entry.includes('enkripsi') ? 'text-violet-300' :
+                      entry.includes('Dekripsi') || entry.includes('dekripsi') ? 'text-emerald-300' :
+                      entry.includes('Face Lock') ? 'text-blue-300' :
+                      'text-slate-300'
+                    }`}
+                  >
+                    {entry}
+                  </p>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ====== CONFIRMATION DIALOG ====== */}
       {confirmDialog.open && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-overlayIn">
@@ -1880,7 +1925,7 @@ export function App() {
               <p className="text-sm text-slate-500 mt-1">Ekstrak file tersembunyi dari file stego Anda.</p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
               <div className="lg:col-span-1 space-y-5">
 
                 {/* Step 1: File Stego */}
@@ -2240,6 +2285,15 @@ export function App() {
                       </div>
                       <div className="flex items-center gap-2">
                         <input ref={addFileInputRef} type="file" multiple className="hidden" onChange={handleAddFileToDecrypted} />
+                        {decryptionDone && (
+                          <button
+                            onClick={() => setShowLogPopup(true)}
+                            className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-500 hover:text-amber-600 transition-all cursor-pointer shrink-0"
+                            title="Lihat log aktivitas"
+                          >
+                            <AlertCircle className="w-4 h-4" />
+                          </button>
+                        )}
                         <button onClick={toggleAllDecryptPreviews} className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all cursor-pointer ${allDecryptPreviewsOpen ? 'text-violet-600 bg-violet-100 hover:bg-violet-200' : 'text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100'}`} title={allDecryptPreviewsOpen ? 'Tutup semua preview' : 'Buka semua preview'}>
                           {allDecryptPreviewsOpen ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                           <span className="hidden sm:inline">{allDecryptPreviewsOpen ? 'Tutup Semua' : 'Buka Semua'}</span>
@@ -2375,29 +2429,6 @@ export function App() {
                   </div>
                 )}
               </div>
-
-              {/* Log Panel — far right, only shown after decryption */}
-              {decryptionDone && (
-                <div className="lg:col-span-1">
-                  <div className="bg-slate-900 rounded-2xl border border-slate-700 p-4 sticky top-20 h-fit">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                      <h3 className="text-xs font-bold text-slate-200 uppercase tracking-widest">Log Aktivitas</h3>
-                    </div>
-                    <div className="space-y-1 max-h-[480px] overflow-y-auto pr-1 scrollbar-thin">
-                      {activityLog.length === 0 ? (
-                        <p className="text-[10px] text-slate-500 italic">Belum ada aktivitas tercatat.</p>
-                      ) : (
-                        activityLog.map((entry, i) => (
-                          <p key={i} className={`text-[10px] leading-snug font-mono break-words ${entry.startsWith('[') && entry.includes(']  -') ? 'text-slate-400 pl-2' : entry.startsWith('[') && entry.includes(']  +') ? 'text-emerald-400 pl-2' : 'text-slate-300'}`}>
-                            {entry}
-                          </p>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}
