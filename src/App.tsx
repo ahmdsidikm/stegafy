@@ -596,13 +596,13 @@ export function App() {
   const [activityLog, setActivityLog] = useState<string[]>([]);
   const [showLogPopup, setShowLogPopup] = useState(false);
 
+  const makeTs = () => new Date().toLocaleString('id-ID', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+
   const addLog = useCallback((entry: string) => {
-    const now = new Date();
-    const timestamp = now.toLocaleString('id-ID', {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    });
-    setActivityLog((prev) => [...prev, `[${timestamp}] ${entry}`]);
+    setActivityLog((prev) => [...prev, `[${makeTs()}] ${entry}`]);
   }, []);
 
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -868,18 +868,16 @@ export function App() {
 
       const methodToUse = passwordCopy ? embedMethod : undefined;
 
-      // Build creation log to embed in payload
-      const now = new Date();
-      const ts = now.toLocaleString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      // Build creation log to embed in payload — each entry gets its own fresh timestamp
       const creationLog: string[] = [
-        `[${ts}] File stego dibuat`,
-        `[${ts}] Cover: ${coverFile.name}`,
-        `[${ts}] ${renamedFiles.length} file rahasia disematkan`,
-        ...renamedFiles.map((f) => `[${ts}]   - ${f.name} (${formatFileSize(f.size)})`),
+        `[${makeTs()}] File stego dibuat`,
+        `[${makeTs()}] Cover: ${coverFile.name}`,
+        `[${makeTs()}] ${renamedFiles.length} file rahasia disematkan`,
+        ...renamedFiles.map((f) => `[${makeTs()}]   - ${f.name} (${formatFileSize(f.size)})`),
         ...(passwordCopy
-          ? [`[${ts}] Enkripsi: ${methodToUse === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`]
-          : [`[${ts}] Tanpa enkripsi password`]),
-        ...(embedFaceDescriptor ? [`[${ts}] Face Lock diaktifkan`] : []),
+          ? [`[${makeTs()}] Enkripsi: ${methodToUse === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`]
+          : [`[${makeTs()}] Tanpa enkripsi password`]),
+        ...(embedFaceDescriptor ? [`[${makeTs()}] Face Lock diaktifkan`] : []),
       ];
 
       const { blob, extension } = await embedFiles(
@@ -1044,16 +1042,13 @@ export function App() {
 
       clearDecryptPassword();
 
-      // Restore log from payload, then append new session entries
-      const now = new Date();
-      const ts = now.toLocaleString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      const sessionEntries: string[] = [
-        `[${ts}] Dekripsi berhasil: ${stegoFile?.name ?? 'file stego'}`,
-        `[${ts}] ${files.length} file berhasil diekstrak`,
-        ...files.map((f) => `[${ts}]   - ${f.name} (${formatFileSize(f.size)})`),
-        ...(detectedMethod ? [`[${ts}] Metode enkripsi: ${detectedMethod === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`] : []),
-        ...(faceDescriptor ? [`[${ts}] Face Lock: terverifikasi`] : []),
-      ];
+      // Restore log from payload, then append new session entries — each with a fresh timestamp
+      const sessionEntries: string[] = [];
+      sessionEntries.push(`[${makeTs()}] Dekripsi berhasil: ${stegoFile?.name ?? 'file stego'}`);
+      sessionEntries.push(`[${makeTs()}] ${files.length} file berhasil diekstrak`);
+      for (const f of files) sessionEntries.push(`[${makeTs()}]   - ${f.name} (${formatFileSize(f.size)})`);
+      if (detectedMethod) sessionEntries.push(`[${makeTs()}] Metode enkripsi: ${detectedMethod === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`);
+      if (faceDescriptor) sessionEntries.push(`[${makeTs()}] Face Lock: terverifikasi`);
       setActivityLog([...(payloadLog || []), ...sessionEntries]);
 
       showToast(`Berhasil mendekripsi ${files.length} file! Password telah dihapus dari memori.`, 'success');
@@ -1126,13 +1121,11 @@ export function App() {
     const passwordToUse = passwordChanged ? newPassword : originalDecryptPassword;
     const passwordCopy = passwordToUse; // Copy
 
-    // Append update entry to log before saving
-    const now = new Date();
-    const ts = now.toLocaleString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    // Append update entry to log before saving — each entry gets its own fresh timestamp
     const updatedLog = [
       ...activityLog,
-      `[${ts}] File diperbarui & disimpan ulang (${decryptedFiles.length} file dalam payload)`,
-      ...(passwordChanged ? [`[${ts}] Password diubah`] : []),
+      `[${makeTs()}] File diperbarui & disimpan ulang (${decryptedFiles.length} file dalam payload)`,
+      ...(passwordChanged ? [`[${makeTs()}] Password diubah`] : []),
     ];
 
     try {
