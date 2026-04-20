@@ -569,6 +569,14 @@ export function App() {
   const [allDecryptPreviewsOpen, setAllDecryptPreviewsOpen] = useState(false);
   const [decryptMethod, setDecryptMethod] = useState<EncryptionMethod>('xor');
 
+  // Key type state (embed)
+  const [embedKeyType, setEmbedKeyType] = useState<'password' | 'generate'>('password');
+  const [generatedKey, setGeneratedKey] = useState<string>('');
+  const [generatedKeyUrl, setGeneratedKeyUrl] = useState<string>('');
+
+  // Key type state (decrypt)
+  const [decryptKeyType, setDecryptKeyType] = useState<'password' | 'keyfile'>('password');
+
   // Filter & Search state
   const [filterCategory, setFilterCategory] = useState<FilterCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -585,6 +593,7 @@ export function App() {
   const secretInputRef = useRef<HTMLInputElement>(null);
   const stegoInputRef = useRef<HTMLInputElement>(null);
   const addFileInputRef = useRef<HTMLInputElement>(null);
+  const keyFileInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = useCallback((message: string, type: Toast['type']) => {
     const id = Math.random().toString(36).substring(2);
@@ -640,6 +649,13 @@ export function App() {
     setStegoPreview(null);
     setStegoOutputName('');
     setEditingStegoName(false);
+  };
+
+  const resetEmbedKeyState = () => {
+    setEmbedKeyType('password');
+    setGeneratedKey('');
+    setGeneratedKeyUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return ''; });
+    setEmbedPassword('');
   };
 
   // Reset face descriptor juga saat tab embed di-clear
@@ -790,6 +806,35 @@ export function App() {
     setShowNewPassword(false);
   }, [newPassword]);
 
+  const generateRandomKey = useCallback(() => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?';
+    const array = new Uint8Array(50);
+    crypto.getRandomValues(array);
+    let key = '';
+    for (let i = 0; i < 50; i++) {
+      key += chars[array[i] % chars.length];
+    }
+    setGeneratedKey(key);
+    setEmbedPassword(key);
+    // Buat blob txt (internal), diunduh sebagai key.sty
+    const blob = new Blob([key], { type: 'text/plain' });
+    setGeneratedKeyUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
+  }, []);
+
+  const handleKeyFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await readFileAsText(file);
+      const key = text.trim();
+      setDecryptPassword(key);
+      showToast('Key berhasil dimuat dari file!', 'success');
+    } catch {
+      showToast('Gagal membaca file key.', 'error');
+    }
+    if (e.target) e.target.value = '';
+  }, [showToast]);
+
   const handleEmbed = async () => {
     if (!coverFile) return showToast('Pilih file cover terlebih dahulu!', 'error');
     if (secretFiles.length === 0) return showToast('Tambahkan minimal satu file rahasia!', 'error');
@@ -862,6 +907,7 @@ export function App() {
     setFilterCategory('all');
     setSearchQuery('');
     setDecryptMethod('xor');
+    setDecryptKeyType('password');
 
     const preview = await buildFilePreview(file);
     setStegoFilePreview(preview);
@@ -1182,6 +1228,7 @@ export function App() {
     setFaceVerified(false);
     setStoredFaceDescriptor(null);
     setStegoHasFace(false);
+    setDecryptKeyType('password');
     if (stegoInputRef.current) stegoInputRef.current.value = '';
   };
 
@@ -1501,6 +1548,43 @@ export function App() {
                   </div>
 
                   {/* Password input */}
+                  {/* Key type toggle - only visible when Mode Pro is selected */}
+                  {embedMethod === 'aes' && (
+                    <div className="mb-3 animate-slideDown">
+                      <label className="text-xs font-semibold text-slate-500 mb-2 block">Jenis Kunci Enkripsi</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setEmbedKeyType('password'); if (generatedKey) { setEmbedPassword(''); setGeneratedKey(''); } }}
+                          className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
+                            ${embedKeyType === 'password' ? 'border-orange-400 bg-orange-50/60' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
+                        >
+                          {embedKeyType === 'password' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-orange-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
+                          <Lock className={`w-4 h-4 shrink-0 ${embedKeyType === 'password' ? 'text-orange-500' : 'text-slate-400'}`} />
+                          <div>
+                            <p className={`text-xs font-bold ${embedKeyType === 'password' ? 'text-orange-700' : 'text-slate-600'}`}>Password</p>
+                            <p className={`text-[10px] ${embedKeyType === 'password' ? 'text-orange-500/80' : 'text-slate-400'}`}>Ketik manual</p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setEmbedKeyType('generate'); setEmbedPassword(''); setGeneratedKey(''); setGeneratedKeyUrl(''); }}
+                          className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
+                            ${embedKeyType === 'generate' ? 'border-violet-400 bg-violet-50/60' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
+                        >
+                          {embedKeyType === 'generate' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-violet-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
+                          <KeyRound className={`w-4 h-4 shrink-0 ${embedKeyType === 'generate' ? 'text-violet-500' : 'text-slate-400'}`} />
+                          <div>
+                            <p className={`text-xs font-bold ${embedKeyType === 'generate' ? 'text-violet-700' : 'text-slate-600'}`}>Buat Key</p>
+                            <p className={`text-[10px] ${embedKeyType === 'generate' ? 'text-violet-500/80' : 'text-slate-400'}`}>Auto-generate</p>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Manual password input (shown when keyType === 'password' OR mode standar) */}
+                  {(embedKeyType === 'password' || embedMethod !== 'aes') && (
                   <div className="relative">
                     <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
@@ -1514,12 +1598,52 @@ export function App() {
                       {showEmbedPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                  )}
+
+                  {/* Generate Key UI */}
+                  {embedMethod === 'aes' && embedKeyType === 'generate' && (
+                    <div className="animate-slideDown space-y-2.5">
+                      {!generatedKey ? (
+                        <button
+                          type="button"
+                          onClick={generateRandomKey}
+                          className="w-full flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98] cursor-pointer shadow-md shadow-violet-200"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                          Generate Key (50 karakter)
+                        </button>
+                      ) : (
+                        <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold text-violet-700 flex items-center gap-1.5"><CheckCircle className="w-3.5 h-3.5" />Key berhasil dibuat!</span>
+                            <button type="button" onClick={generateRandomKey} className="text-[11px] text-violet-500 hover:text-violet-700 font-semibold flex items-center gap-1 cursor-pointer"><RefreshCw className="w-3 h-3" />Generate ulang</button>
+                          </div>
+                          {/* Key preview (masked) */}
+                          <div className="bg-white border border-violet-100 rounded-lg px-3 py-2 font-mono text-xs text-slate-500 tracking-widest overflow-hidden">
+                            {'●'.repeat(Math.min(generatedKey.length, 50))}
+                          </div>
+                          <div className="flex items-start gap-2 px-2.5 py-2 bg-amber-50 border border-amber-100 rounded-lg">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                            <p className="text-[10px] text-amber-700 leading-snug font-medium">Simpan file <strong>key.sty</strong> ini! Tanpanya kamu tidak bisa mendekripsi file nantinya.</p>
+                          </div>
+                          <a
+                            href={generatedKeyUrl}
+                            download="key.sty"
+                            className="w-full flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white py-2.5 rounded-xl text-xs font-bold transition-all active:scale-[0.98]"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Unduh key.sty
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Password strength indicator */}
-                  <PasswordStrengthIndicator password={embedPassword} />
+                  {embedKeyType === 'password' && <PasswordStrengthIndicator password={embedPassword} />}
 
                   {/* ── Face Lock (hanya Mode Pro / AES) ── */}
-                  {embedMethod === 'aes' && embedPassword && (
+                  {embedMethod === 'aes' && (embedPassword || (embedKeyType === 'generate' && generatedKey)) && (
                     <div className="mt-4 animate-slideDown">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-1.5">
@@ -1589,13 +1713,13 @@ export function App() {
                     </div>
                     {renderEncryptionMethodSelector(
                       embedMethod,
-                      (m) => { setEmbedMethod(m); resetStegoResult(); },
-                      !embedPassword
+                      (m) => { setEmbedMethod(m); resetStegoResult(); if (m !== 'aes') { setEmbedKeyType('password'); setGeneratedKey(''); setGeneratedKeyUrl(''); } },
+                      !embedPassword && !(embedKeyType === 'generate' && generatedKey)
                     )}
                   </div>
 
                   {/* Security info for AES + Argon2 */}
-                  {embedPassword && embedMethod === 'aes' && (
+                  {(embedPassword || (embedKeyType === 'generate' && generatedKey)) && embedMethod === 'aes' && (
                     <div className="mt-3 flex items-start gap-2 px-3 py-2.5 bg-emerald-50/60 border border-emerald-200 rounded-xl animate-fadeIn">
                       <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
                       <div>
@@ -1774,7 +1898,43 @@ export function App() {
                       <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-wide">Diperlukan</span>
                     </div>
 
+                    {/* Key type toggle (only for AES) */}
+                    {detectedMethod === 'aes' && (
+                      <div className="mb-3 animate-fadeIn">
+                        <label className="text-xs font-semibold text-slate-500 mb-2 block">Metode Input Kunci</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setDecryptKeyType('password'); setDecryptPassword(''); }}
+                            className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
+                              ${decryptKeyType === 'password' ? 'border-violet-400 bg-violet-50/60' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                          >
+                            {decryptKeyType === 'password' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-violet-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
+                            <Lock className={`w-4 h-4 shrink-0 ${decryptKeyType === 'password' ? 'text-violet-500' : 'text-slate-400'}`} />
+                            <div>
+                              <p className={`text-xs font-bold ${decryptKeyType === 'password' ? 'text-violet-700' : 'text-slate-600'}`}>Password</p>
+                              <p className={`text-[10px] ${decryptKeyType === 'password' ? 'text-violet-500/80' : 'text-slate-400'}`}>Ketik manual</p>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setDecryptKeyType('keyfile'); setDecryptPassword(''); }}
+                            className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
+                              ${decryptKeyType === 'keyfile' ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                          >
+                            {decryptKeyType === 'keyfile' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-emerald-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
+                            <KeyRound className={`w-4 h-4 shrink-0 ${decryptKeyType === 'keyfile' ? 'text-emerald-500' : 'text-slate-400'}`} />
+                            <div>
+                              <p className={`text-xs font-bold ${decryptKeyType === 'keyfile' ? 'text-emerald-700' : 'text-slate-600'}`}>File Key</p>
+                              <p className={`text-[10px] ${decryptKeyType === 'keyfile' ? 'text-emerald-500/80' : 'text-slate-400'}`}>Upload key.sty</p>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Password input */}
+                    {decryptKeyType === 'password' && (
                     <div className="relative">
                       <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <input
@@ -1788,6 +1948,47 @@ export function App() {
                         {showDecryptPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
+                    )}
+
+                    {/* Key file upload */}
+                    {decryptKeyType === 'keyfile' && detectedMethod === 'aes' && (
+                      <div className="animate-slideDown">
+                        <input ref={keyFileInputRef} type="file" accept=".sty,.txt" className="hidden" onChange={handleKeyFileUpload} />
+                        {!decryptPassword ? (
+                          <button
+                            type="button"
+                            onClick={() => keyFileInputRef.current?.click()}
+                            className="w-full border-2 border-dashed border-emerald-200 rounded-xl py-5 flex flex-col items-center gap-2 hover:border-emerald-400 hover:bg-emerald-50/30 transition-all group cursor-pointer"
+                          >
+                            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
+                              <KeyRound className="w-5 h-5 text-emerald-400 group-hover:text-emerald-600" />
+                            </div>
+                            <div className="text-center">
+                              <p className="text-xs font-semibold text-slate-500 group-hover:text-slate-700">Klik untuk upload file key.sty</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">File key yang di-download saat enkripsi</p>
+                            </div>
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                            <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                              <CheckCircle className="w-4.5 h-4.5 text-emerald-500" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-emerald-700">Key berhasil dimuat ✓</p>
+                              <p className="text-[10px] text-emerald-600/80 font-mono mt-0.5">{'●'.repeat(Math.min(decryptPassword.length, 30))}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => { setDecryptPassword(''); if (keyFileInputRef.current) keyFileInputRef.current.value = ''; }}
+                              className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer shrink-0"
+                              title="Hapus key"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Face verification (if stego has face lock) */}
                     {stegoHasFace && (
