@@ -16,8 +16,6 @@ import {
   blobToDataURL, blobToText, formatFileSize, getFileCategory,
   calculatePasswordStrength, secureWipeString,
   isFaceMatch, faceDescriptorDistance, FACE_MATCH_THRESHOLD,
-  generateFaceSeed, encryptFaceSeedBundle, decryptFaceSeedBundle,
-  buildCompositePassword, extractEncryptedBundleRaw,
   type HiddenFile, type EncryptionMethod, type PasswordStrength,
 } from './utils/stego';
 
@@ -59,14 +57,11 @@ type FaceScanStatus = 'idle' | 'loading-models' | 'waiting' | 'detecting' | 'suc
 
 interface FaceScannerProps {
   mode: FaceScanMode;
+  /** For verify mode: the stored descriptor to match against */
+  storedDescriptor?: Float32Array | null;
   onCapture?: (descriptor: Float32Array) => void;
-  /**
-   * Verify mode: called with the live descriptor.
-   * Should return { ok: true } on match, or { ok: false, reason: string } on failure.
-   * This is async so caller can do bundle decryption + face match inside.
-   */
-  onVerifyAttempt?: (descriptor: Float32Array) => Promise<{ ok: boolean; reason?: string }>;
-  onVerified?: () => void;
+  onVerified?: (descriptor: Float32Array) => void;
+  onFailed?: (reason: string) => void;
   onClose: () => void;
 }
 
@@ -76,7 +71,7 @@ declare global {
   interface Window { faceapi: any; }
 }
 
-function FaceScanner({ mode, onCapture, onVerifyAttempt, onVerified, onClose }: FaceScannerProps) {
+function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onClose }: FaceScannerProps) {
   const videoRef    = useRef<HTMLVideoElement>(null);
   const canvasRef   = useRef<HTMLCanvasElement>(null);
   const streamRef   = useRef<MediaStream | null>(null);
@@ -264,34 +259,22 @@ function FaceScanner({ mode, onCapture, onVerifyAttempt, onVerified, onClose }: 
         stopCamera();
         setTimeout(() => { onCapture?.(descriptor); onClose(); }, 900);
       } else {
-        if (!onVerifyAttempt) {
+        if (!storedDescriptor) {
           lockedRef.current = false;
           setStatus('error');
-          setStatusMsg('Verifikasi tidak dikonfigurasi.');
+          setStatusMsg('Tidak ada data wajah tersimpan di file ini.');
           return;
         }
-        setStatus('detecting');
-        setStatusMsg('Memverifikasi wajah dengan data tersimpan...');
-        try {
-          const result = await onVerifyAttempt(descriptor);
-          if (result.ok) {
-            setStatus('success');
-            setStatusMsg('Wajah cocok! ✓');
-            stopCamera();
-            setTimeout(() => { onVerified?.(); onClose(); }, 900);
-          } else {
-            lockedRef.current = false;
-            setStatus('error');
-            setStatusMsg(result.reason ?? 'Wajah tidak cocok. Coba lagi.');
-            setTimeout(() => {
-              setStatus('waiting');
-              setStatusMsg('Arahkan wajah ke kamera — kotak ungu akan muncul saat terdeteksi');
-            }, 3000);
-          }
-        } catch (verifyErr) {
+        const dist = faceDescriptorDistance(descriptor, storedDescriptor);
+        if (isFaceMatch(descriptor, storedDescriptor)) {
+          setStatus('success');
+          setStatusMsg(`Wajah cocok! (jarak: ${dist.toFixed(3)}) ✓`);
+          stopCamera();
+          setTimeout(() => { onVerified?.(descriptor); onClose(); }, 900);
+        } else {
           lockedRef.current = false;
           setStatus('error');
-          setStatusMsg(`Gagal verifikasi: ${(verifyErr as Error).message}`);
+          setStatusMsg(`Wajah tidak cocok (jarak: ${dist.toFixed(3)}, batas: ${FACE_MATCH_THRESHOLD}). Coba lagi.`);
           setTimeout(() => {
             setStatus('waiting');
             setStatusMsg('Arahkan wajah ke kamera — kotak ungu akan muncul saat terdeteksi');
@@ -594,13 +577,7 @@ export function App() {
   const [embedFaceDescriptor, setEmbedFaceDescriptor] = useState<Float32Array | null>(null);
   const [showFaceScanner, setShowFaceScanner] = useState(false);
   const [faceScanMode, setFaceScanMode] = useState<'enroll' | 'verify'>('enroll');
-  // The raw AES-encrypted bundle read from the stego file (NOT decrypted yet)
-  // It will be decrypted only after successful face verification
-  const [encryptedBundleRaw, setEncryptedBundleRaw] = useState<Uint8Array | null>(null);
-  // The face descriptor recovered from the bundle (set after decryption on verify success)
   const [storedFaceDescriptor, setStoredFaceDescriptor] = useState<Float32Array | null>(null);
-  // The seed recovered from the bundle (set after decryption on verify success)
-  const [recoveredSeed, setRecoveredSeed] = useState<Uint8Array | null>(null);
   const [faceVerified, setFaceVerified] = useState(false);
   const [stegoHasFace, setStegoHasFace] = useState(false);
 
@@ -818,7 +795,7 @@ export function App() {
     if (secretFiles.length === 0) return showToast('Tambahkan minimal satu file rahasia!', 'error');
 
     setEmbedding(true);
-    const passwordCopy = embedPassword;
+    const passwordCopy = embedPassword; // Copy before clearing
     try {
       const renamedFiles = secretFiles.map((file, index) => {
         const customName = embedFileNames[index];
@@ -828,32 +805,12 @@ export function App() {
         return file;
       });
 
-      const hasFaceLock = !!(embedFaceDescriptor && passwordCopy && embedMethod === 'aes');
-
-      // If Face Lock is active:
-      //   1. Generate a random 64-byte seed
-      //   2. Build composite password = userPassword + hex(seed)
-      //   3. Encrypt payload with composite password
-      //   4. Encrypt {seed + faceDescriptor} bundle with userPassword → stored in trailer
-      let effectivePassword = passwordCopy || undefined;
-      let encryptedBundle: Uint8Array | null = null;
-
-      if (hasFaceLock && embedFaceDescriptor) {
-        const seed = generateFaceSeed();
-        effectivePassword = buildCompositePassword(passwordCopy, seed);
-        encryptedBundle = await encryptFaceSeedBundle(seed, embedFaceDescriptor, passwordCopy);
-        crypto.getRandomValues(seed); // wipe seed from memory after use
-      }
-
-      const methodToUse = effectivePassword ? embedMethod : undefined;
+      const methodToUse = passwordCopy ? embedMethod : undefined;
 
       const { blob, extension } = await embedFiles(
-        coverFile,
-        renamedFiles,
-        effectivePassword,
-        embedComments,
-        methodToUse,
-        encryptedBundle
+        coverFile, renamedFiles, passwordCopy || undefined,
+        embedComments, methodToUse,
+        embedFaceDescriptor ?? undefined
       );
 
       const url = URL.createObjectURL(blob);
@@ -869,14 +826,13 @@ export function App() {
       else if (cat === 'audio' || cat === 'video') sp.url = url;
       setStegoPreview(sp);
 
+      // Clear password from memory after successful embed
       clearEmbedPassword();
-      const msg = hasFaceLock
-        ? 'File berhasil disembunyikan dengan Face Lock! Seed acak telah ditambahkan ke password di balik layar.'
-        : 'File berhasil disembunyikan! Password telah dihapus dari memori.';
-      showToast(msg, 'success');
+      showToast('File berhasil disembunyikan! Password telah dihapus dari memori.', 'success');
     } catch (err) {
       showToast(`Error: ${(err as Error).message}`, 'error');
     } finally {
+      // Always wipe the password copy
       secureWipeString(passwordCopy);
       setEmbedding(false);
     }
@@ -906,11 +862,6 @@ export function App() {
     setFilterCategory('all');
     setSearchQuery('');
     setDecryptMethod('xor');
-    // Reset face state
-    setEncryptedBundleRaw(null);
-    setStoredFaceDescriptor(null);
-    setRecoveredSeed(null);
-    setFaceVerified(false);
 
     const preview = await buildFilePreview(file);
     setStegoFilePreview(preview);
@@ -928,20 +879,48 @@ export function App() {
       setNeedsPassword(check.hasPassword);
       setDetectedMethod(check.method);
       setStegoHasFace(check.hasFace);
+      setFaceVerified(false);
 
-      // If Face Lock present: read encrypted bundle raw (not decrypted yet).
-      // Decryption happens ONLY after user inputs password AND face is verified.
+      // Pre-extract face descriptor from stego file (tersimpan di trailer, bukan payload)
+      // Ini aman dilakukan tanpa password karena face descriptor ada di luar payload terenkripsi
       if (check.hasFace) {
-        const bundle = extractEncryptedBundleRaw(buffer);
-        setEncryptedBundleRaw(bundle);
+        try {
+          // Extract dengan password kosong — akan gagal di payload tapi face descriptor sudah terbaca
+          const { faceDescriptor } = await extractFiles(buffer, undefined, null).catch(() => ({ faceDescriptor: null, files: [] }));
+          // Jika no password stego atau bisa dibaca, ambil face descriptor-nya
+          // Untuk AES/XOR stego: face descriptor dibaca SEBELUM decrypt payload
+          // Kita extract langsung dari buffer trailer
+          if (faceDescriptor) {
+            setStoredFaceDescriptor(faceDescriptor);
+          } else {
+            // Extract face bytes langsung dari trailer buffer
+            const u8 = new Uint8Array(buffer);
+            const FACE_BYTES_LEN = 128 * 4;
+            const faceStart = u8.length - 10 - FACE_BYTES_LEN;
+            if (faceStart >= 0) {
+              const faceBytes = u8.slice(faceStart, faceStart + FACE_BYTES_LEN);
+              const copy = new Uint8Array(faceBytes).buffer;
+              setStoredFaceDescriptor(new Float32Array(copy));
+            }
+          }
+        } catch {
+          // fallback: extract face bytes langsung dari trailer
+          const u8 = new Uint8Array(buffer);
+          const FACE_BYTES_LEN = 128 * 4;
+          const faceStart = u8.length - 10 - FACE_BYTES_LEN;
+          if (faceStart >= 0) {
+            const faceBytes = u8.slice(faceStart, faceStart + FACE_BYTES_LEN);
+            const copy = new Uint8Array(faceBytes).buffer;
+            setStoredFaceDescriptor(new Float32Array(copy));
+          }
+        }
       }
-
-      if (check.method) setDecryptMethod(check.method);
-
+      if (check.method) {
+        setDecryptMethod(check.method);
+      }
       if (check.hasPassword) {
         const methodLabel = check.method === 'aes' ? 'AES-256 + Argon2' : 'XOR';
-        const faceNote = check.hasFace ? ' + Face Lock' : '';
-        showToast(`File memerlukan password (${methodLabel}${faceNote}) untuk dekripsi.`, 'info');
+        showToast(`File memerlukan password (${methodLabel}) untuk dekripsi.`, 'info');
       } else {
         showToast('Data tersembunyi terdeteksi! Klik Dekripsi.', 'info');
       }
@@ -949,7 +928,6 @@ export function App() {
       showToast(`Error: ${(err as Error).message}`, 'error');
     }
   };
-
 
   const handleDecrypt = async () => {
     if (!stegoBuffer) return showToast('Pilih file stego terlebih dahulu!', 'error');
@@ -963,19 +941,10 @@ export function App() {
     setDecrypting(true);
     const passwordCopy = decryptPassword;
     try {
-      // If Face Lock active: composite password = userPassword + hex(seed)
-      // The seed was recovered during face verification (stored in recoveredSeed state)
-      let effectivePassword = passwordCopy || undefined;
-      if (stegoHasFace && faceVerified && recoveredSeed) {
-        effectivePassword = buildCompositePassword(passwordCopy, recoveredSeed);
-      }
+      const { files, faceDescriptor } = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod);
 
-      const { files, encryptedBundleRaw: bundleFromFile } = await extractFiles(
-        stegoBuffer, effectivePassword, detectedMethod
-      );
-
-      // Keep the bundle in state for re-embed later
-      if (bundleFromFile) setEncryptedBundleRaw(bundleFromFile);
+      // Simpan stored face descriptor untuk referensi (sudah diverifikasi sebelumnya)
+      if (faceDescriptor) setStoredFaceDescriptor(faceDescriptor);
 
       setDecryptedFiles(files);
       setModified(false);
@@ -992,8 +961,7 @@ export function App() {
       if (detectedMethod) setDecryptMethod(detectedMethod);
 
       clearDecryptPassword();
-      const faceNote = stegoHasFace ? ' Seed wajah berhasil digunakan untuk membuka kunci.' : '';
-      showToast(`Berhasil mendekripsi ${files.length} file!${faceNote}`, 'success');
+      showToast(`Berhasil mendekripsi ${files.length} file! Password telah dihapus dari memori.`, 'success');
 
       const previews: Record<string, string> = {};
       for (const f of files) {
@@ -1059,29 +1027,13 @@ export function App() {
     if (!stegoBuffer || decryptedFiles.length === 0) return;
     setUpdating(true);
     const passwordToUse = passwordChanged ? newPassword : originalDecryptPassword;
-    const passwordCopy = passwordToUse;
+    const passwordCopy = passwordToUse; // Copy
     try {
-      // If face lock is active, re-use the same encryptedBundleRaw + composite password
-      let effectivePassword = passwordCopy || undefined;
-      let bundleForEmbed: Uint8Array | null = encryptedBundleRaw;
-
-      if (stegoHasFace && faceVerified && recoveredSeed && passwordCopy) {
-        if (passwordChanged && newPassword) {
-          // Password changed → re-encrypt bundle with new password
-          // We have the face descriptor in storedFaceDescriptor (recovered during verify)
-          if (storedFaceDescriptor) {
-            bundleForEmbed = await encryptFaceSeedBundle(recoveredSeed, storedFaceDescriptor, passwordCopy);
-          }
-        }
-        effectivePassword = buildCompositePassword(passwordCopy, recoveredSeed);
-      }
-
       const newBlob = await reEmbedFiles(
-        stegoBuffer,
-        decryptedFiles,
-        effectivePassword,
-        effectivePassword ? decryptMethod : undefined,
-        bundleForEmbed
+        stegoBuffer, decryptedFiles,
+        passwordCopy || undefined,
+        passwordCopy ? decryptMethod : undefined,
+        storedFaceDescriptor ?? undefined
       );
 
       const newBuffer = await newBlob.arrayBuffer();
@@ -1097,6 +1049,7 @@ export function App() {
       setModified(false);
       setPasswordChanged(false);
 
+      // Clear new password from memory after successful update
       clearNewPassword();
       showToast('File cover diperbarui dan diunduh! Password telah dihapus dari memori.', 'success');
     } catch (err) {
@@ -1228,8 +1181,6 @@ export function App() {
     setDecryptMethod('xor');
     setFaceVerified(false);
     setStoredFaceDescriptor(null);
-    setEncryptedBundleRaw(null);
-    setRecoveredSeed(null);
     setStegoHasFace(false);
     if (stegoInputRef.current) stegoInputRef.current.value = '';
   };
@@ -1308,40 +1259,14 @@ export function App() {
       {showFaceScanner && (
         <FaceScanner
           mode={faceScanMode}
+          storedDescriptor={storedFaceDescriptor}
           onCapture={(descriptor) => {
             setEmbedFaceDescriptor(descriptor);
-            showToast('Wajah berhasil dipindai! Akan dienkripsi bersama file.', 'success');
-          }}
-          onVerifyAttempt={async (liveDescriptor) => {
-            // Step 1: decrypt the bundle using the user's password to get seed + stored descriptor
-            if (!encryptedBundleRaw) {
-              return { ok: false, reason: 'Tidak ada data Face Lock di file ini.' };
-            }
-            if (!decryptPassword) {
-              return { ok: false, reason: 'Masukkan password terlebih dahulu sebelum verifikasi wajah.' };
-            }
-            let seed: Uint8Array;
-            let storedDescriptor: Float32Array;
-            try {
-              const bundle = await decryptFaceSeedBundle(encryptedBundleRaw, decryptPassword);
-              seed = bundle.seed;
-              storedDescriptor = bundle.faceDescriptor;
-            } catch {
-              return { ok: false, reason: 'Password salah — tidak dapat mendekripsi data wajah.' };
-            }
-            // Step 2: compare live face with stored descriptor
-            const dist = faceDescriptorDistance(liveDescriptor, storedDescriptor);
-            if (!isFaceMatch(liveDescriptor, storedDescriptor)) {
-              return { ok: false, reason: `Wajah tidak cocok (jarak: ${dist.toFixed(3)}, batas: ${FACE_MATCH_THRESHOLD}). Coba lagi.` };
-            }
-            // Step 3: store seed + descriptor for use in handleDecrypt
-            setRecoveredSeed(seed);
-            setStoredFaceDescriptor(storedDescriptor);
-            return { ok: true };
+            showToast('Wajah berhasil didaftarkan! Akan dienkripsi bersama file.', 'success');
           }}
           onVerified={() => {
             setFaceVerified(true);
-            showToast('Verifikasi wajah berhasil! Seed digunakan untuk membuka kunci.', 'success');
+            showToast('Verifikasi wajah berhasil!', 'success');
           }}
           onClose={() => setShowFaceScanner(false)}
         />
@@ -1879,18 +1804,15 @@ export function App() {
                             </div>
                             <div className="text-center">
                               <p className="text-xs font-semibold text-slate-600">Face Lock Aktif</p>
-                              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                                Masukkan password dulu, lalu verifikasi wajah
-                              </p>
+                              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug"></p>
                             </div>
                             <button
                               type="button"
-                              disabled={!decryptPassword}
                               onClick={() => {
                                 setFaceScanMode('verify');
                                 setShowFaceScanner(true);
                               }}
-                              className="flex items-center gap-2 bg-violet-500 hover:bg-violet-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-[0.98] cursor-pointer shadow-sm shadow-violet-200"
+                              className="flex items-center gap-2 bg-violet-500 hover:bg-violet-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-[0.98] cursor-pointer shadow-sm shadow-violet-200"
                             >
                               <Camera className="w-3.5 h-3.5" />
                               Verifikasi Wajah
@@ -1899,19 +1821,15 @@ export function App() {
                         ) : (
                           <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 flex items-center gap-3">
                             <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
-                              <CheckCircle className="w-5 h-5 text-emerald-500" />
+                              <CheckCircle className="w-4.5 h-4.5 text-emerald-500" />
                             </div>
                             <div className="flex-1">
                               <p className="text-xs font-bold text-emerald-700">Wajah Terverifikasi ✓</p>
-                              <p className="text-[11px] text-emerald-600/80">Seed berhasil dipulihkan dari bundle</p>
+                              <p className="text-[11px] text-emerald-600/80">Identitas cocok</p>
                             </div>
                             <button
                               type="button"
-                              onClick={() => {
-                                setFaceVerified(false);
-                                setStoredFaceDescriptor(null);
-                                setRecoveredSeed(null);
-                              }}
+                              onClick={() => { setFaceVerified(false); setStoredFaceDescriptor(null); }}
                               className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer shrink-0"
                               title="Verifikasi ulang"
                             >
