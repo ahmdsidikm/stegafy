@@ -1652,7 +1652,7 @@ export function App() {
                               className="w-full flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98] cursor-pointer shadow-md shadow-violet-200"
                             >
                               <RefreshCw className="w-4 h-4" />
-                              Generate Key (50 karakter)
+                              Generate Key
                             </button>
                           ) : (
                             <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 space-y-2">
