@@ -15,7 +15,8 @@ import {
   readFileAsArrayBuffer, readFileAsDataURL, readFileAsText,
   blobToDataURL, blobToText, formatFileSize, getFileCategory,
   calculatePasswordStrength, secureWipeString,
-  isFaceMatch, faceDescriptorDistance, FACE_MATCH_THRESHOLD,
+  isFaceMatch, faceDescriptorDistance, faceDescriptorToKeyMaterial,
+  FACE_MATCH_THRESHOLD,
   type HiddenFile, type EncryptionMethod, type PasswordStrength,
 } from './utils/stego';
 
@@ -580,6 +581,8 @@ export function App() {
   const [storedFaceDescriptor, setStoredFaceDescriptor] = useState<Float32Array | null>(null);
   const [faceVerified, setFaceVerified] = useState(false);
   const [stegoHasFace, setStegoHasFace] = useState(false);
+  // Descriptor dari scan verifikasi terbaru — inilah yang dipakai sebagai kunci dekripsi
+  const [liveVerifiedDescriptor, setLiveVerifiedDescriptor] = useState<Float32Array | null>(null);
 
   const coverInputRef = useRef<HTMLInputElement>(null);
   const secretInputRef = useRef<HTMLInputElement>(null);
@@ -941,9 +944,16 @@ export function App() {
     setDecrypting(true);
     const passwordCopy = decryptPassword;
     try {
-      const { files, faceDescriptor } = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod);
+      // liveVerifiedDescriptor = descriptor dari scan terbaru pengguna
+      // Ini dipakai sebagai bagian dari key derivation AES (2FA kriptografis)
+      // Jika wajah tidak cocok → quantized hash berbeda → key berbeda → AES-GCM gagal
+      const { files, faceDescriptor } = await extractFiles(
+        stegoBuffer,
+        passwordCopy || undefined,
+        detectedMethod,
+        liveVerifiedDescriptor ?? undefined
+      );
 
-      // Simpan stored face descriptor untuk referensi (sudah diverifikasi sebelumnya)
       if (faceDescriptor) setStoredFaceDescriptor(faceDescriptor);
 
       setDecryptedFiles(files);
@@ -1033,7 +1043,7 @@ export function App() {
         stegoBuffer, decryptedFiles,
         passwordCopy || undefined,
         passwordCopy ? decryptMethod : undefined,
-        storedFaceDescriptor ?? undefined
+        liveVerifiedDescriptor ?? storedFaceDescriptor ?? undefined
       );
 
       const newBuffer = await newBlob.arrayBuffer();
@@ -1182,6 +1192,7 @@ export function App() {
     setFaceVerified(false);
     setStoredFaceDescriptor(null);
     setStegoHasFace(false);
+    setLiveVerifiedDescriptor(null);
     if (stegoInputRef.current) stegoInputRef.current.value = '';
   };
 
@@ -1264,9 +1275,11 @@ export function App() {
             setEmbedFaceDescriptor(descriptor);
             showToast('Wajah berhasil didaftarkan! Akan dienkripsi bersama file.', 'success');
           }}
-          onVerified={() => {
+          onVerified={(descriptor) => {
             setFaceVerified(true);
-            showToast('Verifikasi wajah berhasil!', 'success');
+            // Simpan descriptor LIVE dari scan ini — inilah yang akan dipakai sebagai kunci AES
+            setLiveVerifiedDescriptor(descriptor);
+            showToast('Verifikasi wajah berhasil! Silakan klik Dekripsi.', 'success');
           }}
           onClose={() => setShowFaceScanner(false)}
         />
@@ -1524,8 +1537,8 @@ export function App() {
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-1.5">
                           <ScanFace className="w-3.5 h-3.5 text-emerald-600" />
-                          <span className="text-xs font-semibold text-slate-600">Keamanan Ganda</span>
-                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">OPSIONAL</span>
+                          <span className="text-xs font-semibold text-slate-600">Keamanan Ganda — Face Lock</span>
+                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">PRO</span>
                         </div>
                       </div>
 
@@ -1536,6 +1549,7 @@ export function App() {
                           </div>
                           <div className="text-center">
                             <p className="text-xs font-semibold text-slate-600">Aktifkan Face Lock</p>
+                            <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">128 fitur wajah dienkripsi dan disimpan di dalam stego file. Dekripsi nanti membutuhkan verifikasi wajah.</p>
                           </div>
                           <button
                             type="button"
@@ -1599,8 +1613,14 @@ export function App() {
                     <div className="mt-3 flex items-start gap-2 px-3 py-2.5 bg-emerald-50/60 border border-emerald-200 rounded-xl animate-fadeIn">
                       <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-[11px] font-semibold text-emerald-700">Argon2 + AES-256-GCM</p>
-                        <p className="text-[10px] text-emerald-600/80 mt-0.5">Key derivation menggunakan Argon2 (memory-hard) untuk perlindungan maksimal terhadap brute-force.</p>
+                        <p className="text-[11px] font-semibold text-emerald-700">
+                          Argon2 + AES-256-GCM{embedFaceDescriptor ? ' + Face Key' : ''}
+                        </p>
+                        <p className="text-[10px] text-emerald-600/80 mt-0.5">
+                          {embedFaceDescriptor
+                            ? 'Key = Argon2(password + SHA256(wajah)). Dekripsi butuh password DAN wajah yang cocok — secara kriptografis, bukan hanya UI.'
+                            : 'Key derivation menggunakan Argon2 (memory-hard) untuk perlindungan maksimal terhadap brute-force.'}
+                        </p>
                       </div>
                     </div>
                   )}
@@ -1794,7 +1814,7 @@ export function App() {
                       <div className="mt-4 animate-slideDown">
                         <div className="flex items-center gap-1.5 mb-2">
                           <ScanFace className="w-3.5 h-3.5 text-violet-500" />
-                          <span className="text-xs font-semibold text-slate-600">Verifikasi Keamanan Ganda</span>
+                          <span className="text-xs font-semibold text-slate-600">Verifikasi Face Lock</span>
                           <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-md">Diperlukan</span>
                         </div>
                         {!faceVerified ? (
@@ -1803,8 +1823,8 @@ export function App() {
                               <ScanFace className="w-6 h-6 text-violet-500" />
                             </div>
                             <div className="text-center">
-                              <p className="text-xs font-semibold text-slate-600">Face Lock Aktif</p>
-                              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug"></p>
+                              <p className="text-xs font-semibold text-slate-600">File ini dikunci dengan wajah</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">Scan wajah kamu untuk memverifikasi identitas sebelum dekripsi.</p>
                             </div>
                             <button
                               type="button"
@@ -1825,7 +1845,7 @@ export function App() {
                             </div>
                             <div className="flex-1">
                               <p className="text-xs font-bold text-emerald-700">Wajah Terverifikasi ✓</p>
-                              <p className="text-[11px] text-emerald-600/80">Identitas cocok</p>
+                              <p className="text-[11px] text-emerald-600/80">Identitas cocok dengan yang tersimpan di file</p>
                             </div>
                             <button
                               type="button"
