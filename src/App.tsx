@@ -934,10 +934,15 @@ export function App() {
       // Ini aman dilakukan tanpa password karena face descriptor ada di luar payload terenkripsi
       if (check.hasFace) {
         try {
+          // Extract dengan password kosong — akan gagal di payload tapi face descriptor sudah terbaca
           const { faceDescriptor } = await extractFiles(buffer, undefined, null).catch(() => ({ faceDescriptor: null, files: [] }));
+          // Jika no password stego atau bisa dibaca, ambil face descriptor-nya
+          // Untuk AES/XOR stego: face descriptor dibaca SEBELUM decrypt payload
+          // Kita extract langsung dari buffer trailer
           if (faceDescriptor) {
             setStoredFaceDescriptor(faceDescriptor);
           } else {
+            // Extract face bytes langsung dari trailer buffer
             const u8 = new Uint8Array(buffer);
             const FACE_BYTES_LEN = 128 * 4;
             const faceStart = u8.length - 10 - FACE_BYTES_LEN;
@@ -948,6 +953,7 @@ export function App() {
             }
           }
         } catch {
+          // fallback: extract face bytes langsung dari trailer
           const u8 = new Uint8Array(buffer);
           const FACE_BYTES_LEN = 128 * 4;
           const faceStart = u8.length - 10 - FACE_BYTES_LEN;
@@ -1527,8 +1533,8 @@ export function App() {
                   )}
                 </section>
 
-                {/* Step 3: Password + Encryption Method (combined) — CARD DIBESARKAN */}
-                <section className="bg-white rounded-2xl border border-slate-200 p-6 card-hover overflow-visible"> {/* p-5 → p-6 (dibesar-kan) */}
+                {/* Step 3: Password + Encryption Method (combined) */}
+                <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover overflow-visible">
                   {/* Header with slider toggle */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2.5">
@@ -1692,21 +1698,19 @@ export function App() {
                           </div>
 
                           {!embedFaceDescriptor ? (
-                            {/* CARD FACE LOCK DIBESARKAN + TOMBOL TIDAK TERPOTONG */}
-                            <div className="rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-6 flex flex-col items-center gap-4"> {/* p-4 → p-6 (dibesar-kan) */}
-                              <div className="w-14 h-14 rounded-2xl bg-emerald-100 flex items-center justify-center"> {/* icon lebih besar */}
-                                <ScanFace className="w-7 h-7 text-emerald-500" />
+                            <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4 flex flex-col items-center gap-3">
+                              <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+                                <ScanFace className="w-6 h-6 text-emerald-500" />
                               </div>
                               <div className="text-center">
-                                <p className="text-sm font-semibold text-slate-600">Aktifkan Face Lock</p>
-                                <p className="text-xs text-slate-500 mt-1">Wajah akan dienkripsi bersama file rahasia</p>
+                                <p className="text-xs font-semibold text-slate-600">Aktifkan Face Lock</p>
                               </div>
                               <button
                                 type="button"
                                 onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }}
-                                className="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-2xl text-sm font-bold transition-all active:scale-[0.98] cursor-pointer shadow-sm shadow-emerald-200" {/* w-full + py-3 + px-6 agar tidak terpotong */}
+                                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-[0.98] cursor-pointer shadow-sm shadow-emerald-200"
                               >
-                                <Camera className="w-4 h-4" />
+                                <Camera className="w-3.5 h-3.5" />
                                 Scan Wajah Sekarang
                               </button>
                             </div>
@@ -1926,7 +1930,7 @@ export function App() {
                   )}
                 </section>
 
-                {/* Step 2: Password + Encryption Method — ISI KEY DITAMPILKAN */}
+                {/* Step 2: Password + Encryption Method */}
                 {stegoFile && needsPassword && !decryptionDone && (
                   <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
                     <div className="flex items-center justify-between mb-3">
@@ -1939,7 +1943,7 @@ export function App() {
                       <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-wide">Diperlukan</span>
                     </div>
 
-                    {/* Key type toggle — tetap bisa di-ubah kembali */}
+                    {/* Key type toggle — tampil untuk semua file berpassword, bukan hanya AES */}
                     {needsPassword && (
                       <div className="mb-3 animate-fadeIn">
                         <label className="text-xs font-semibold text-slate-500 mb-2 block">Metode Input Kunci</label>
@@ -1991,7 +1995,7 @@ export function App() {
                       </div>
                     )}
 
-                    {/* Key file upload — ISI KEY DITAMPILKAN + BISA DI-UBAH KEMBALI */}
+                    {/* Key file upload — untuk semua tipe enkripsi */}
                     {decryptKeyType === 'keyfile' && (
                       <div className="animate-slideDown">
                         <input ref={keyFileInputRef} type="file" accept=".sty,.txt" className="hidden" onChange={handleKeyFileUpload} />
@@ -2010,41 +2014,22 @@ export function App() {
                             </div>
                           </button>
                         ) : (
-                          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
-                                <CheckCircle className="w-4.5 h-4.5 text-emerald-500" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-bold text-emerald-700">Key berhasil dimuat ✓</p>
-                                <p className="text-[10px] text-emerald-600/80 mt-0.5">Siap digunakan untuk dekripsi</p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => { setDecryptPassword(''); if (keyFileInputRef.current) keyFileInputRef.current.value = ''; }}
-                                className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer shrink-0"
-                                title="Hapus key"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
+                          <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                            <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                              <CheckCircle className="w-4.5 h-4.5 text-emerald-500" />
                             </div>
-
-                            {/* ISI KEY DITAMPILKAN (dengan toggle show/hide) */}
-                            <div className="mt-4 pt-4 border-t border-emerald-100">
-                              <div className="flex items-center justify-between text-xs font-semibold text-emerald-700 mb-2">
-                                <span>Isi Key</span>
-                                <button
-                                  onClick={() => setShowDecryptPassword(!showDecryptPassword)}
-                                  className="flex items-center gap-1 text-emerald-500 hover:text-emerald-600 transition-colors"
-                                >
-                                  {showDecryptPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                                  <span className="text-[10px]">{showDecryptPassword ? 'Sembunyikan' : 'Tampilkan'}</span>
-                                </button>
-                              </div>
-                              <div className="font-mono text-[10px] bg-white border border-emerald-200 rounded-xl p-3 text-emerald-800 leading-tight break-all max-h-28 overflow-auto">
-                                {showDecryptPassword ? decryptPassword : '•'.repeat(decryptPassword.length)}
-                              </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-emerald-700">Key berhasil dimuat ✓</p>
+                              <p className="text-[10px] text-emerald-600/80 mt-0.5">Siap digunakan untuk dekripsi</p>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => { setDecryptPassword(''); if (keyFileInputRef.current) keyFileInputRef.current.value = ''; }}
+                              className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer shrink-0"
+                              title="Hapus key"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         )}
                       </div>
@@ -2065,6 +2050,7 @@ export function App() {
                             </div>
                             <div className="text-center">
                               <p className="text-xs font-semibold text-slate-600">Face Lock Aktif</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug"></p>
                             </div>
                             <button
                               type="button"
