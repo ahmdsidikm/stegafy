@@ -1108,7 +1108,7 @@ export function App() {
       setFilePreviews((prev) => ({ ...prev, ...newPreviews }));
       setModified(true);
       addLog(`${files.length} file ditambahkan ke payload`);
-      files.forEach((f) => addLog(`  + ${f.name} (${formatFileSize(f.size)})`));
+      files.forEach((f) => addLog(`  Ditambahkan ${f.name} (${formatFileSize(f.size)})`));
       showToast(`${files.length} file ditambahkan.`, 'success');
     } catch (err) {
       showToast(`Error: ${(err as Error).message}`, 'error');
