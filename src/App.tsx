@@ -1656,7 +1656,7 @@ export function App() {
                               className="w-full flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98] cursor-pointer shadow-md shadow-violet-200"
                             >
                               <RefreshCw className="w-4 h-4" />
-                              Generate Key (50 karakter)
+                              Generate Key
                             </button>
                           ) : (
                             <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 space-y-2">
@@ -1684,8 +1684,6 @@ export function App() {
                         <div className="flex items-start gap-2 px-3 py-2.5 bg-emerald-50/60 border border-emerald-200 rounded-xl">
                           <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
                           <div>
-                            <p className="text-[11px] font-semibold text-emerald-700">Argon2 + AES-256-GCM</p>
-                            <p className="text-[10px] text-emerald-600/80 mt-0.5">Key derivation menggunakan Argon2 (memory-hard) untuk perlindungan maksimal terhadap brute-force.</p>
                           </div>
                         </div>
                       )}
