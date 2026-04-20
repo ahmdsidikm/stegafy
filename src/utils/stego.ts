@@ -163,6 +163,36 @@ export function isFaceMatch(a: Float32Array, b: Float32Array): boolean {
   return faceDescriptorDistance(a, b) <= FACE_MATCH_THRESHOLD;
 }
 
+/**
+ * Quantize face descriptor to a coarse grid sehingga variasi kecil
+ * (beda cahaya, sudut sedikit) menghasilkan hash yang SAMA.
+ *
+ * Grid size 0.04 dipilih karena:
+ *  - Variasi intra-person biasanya < 0.03 per dimensi
+ *  - Variasi inter-person biasanya > 0.08 per dimensi
+ * Dengan demikian orang yang sama → quantized identik,
+ * orang berbeda → quantized berbeda di banyak dimensi → hash berbeda.
+ */
+const FACE_QUANTIZE_STEP = 0.04;
+
+export async function faceDescriptorToKeyMaterial(descriptor: Float32Array): Promise<string> {
+  // Step 1: Quantize setiap nilai ke grid FACE_QUANTIZE_STEP
+  const quantized = new Float32Array(descriptor.length);
+  for (let i = 0; i < descriptor.length; i++) {
+    quantized[i] = Math.round(descriptor[i] / FACE_QUANTIZE_STEP) * FACE_QUANTIZE_STEP;
+  }
+
+  // Step 2: Serialize quantized values → bytes
+  const bytes = new Uint8Array(quantized.buffer.slice(quantized.byteOffset, quantized.byteOffset + quantized.byteLength));
+
+  // Step 3: SHA-256 hash → 32 byte deterministik
+  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+  const hashArray  = new Uint8Array(hashBuffer);
+
+  // Step 4: Encode sebagai hex string (64 char) untuk digabung ke password
+  return Array.from(hashArray).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 // ──────────────────────────────────────────────
 // XOR Encryption (tanpa base64)
 // ──────────────────────────────────────────────
@@ -193,10 +223,17 @@ function xorEncrypt(data: Uint8Array, password: string): Uint8Array {
  */
 async function argon2DeriveKey(
   password: string,
-  salt: Uint8Array
+  salt: Uint8Array,
+  faceKeyMaterial?: string   // hex string dari faceDescriptorToKeyMaterial
 ): Promise<CryptoKey> {
   const encoder = new TextEncoder();
-  const passwordBytes = encoder.encode(password);
+
+  // Gabungkan password + face key material (jika ada)
+  // Format: "<password>\x00<faceHex>" — null byte sebagai separator
+  const combined = faceKeyMaterial
+    ? `${password}\x00${faceKeyMaterial}`
+    : password;
+  const passwordBytes = encoder.encode(combined);
 
   // Phase 1: Initial PBKDF2 key material
   const baseKeyMaterial = await crypto.subtle.importKey(
@@ -296,10 +333,16 @@ async function argon2DeriveKey(
 // AES-256-GCM Encryption (with Argon2id KDF)
 // ──────────────────────────────────────────────
 
-async function aesEncrypt(data: Uint8Array, password: string): Promise<Uint8Array> {
+async function aesEncrypt(data: Uint8Array, password: string, faceDescriptor?: Float32Array): Promise<Uint8Array> {
   const salt = crypto.getRandomValues(new Uint8Array(AES_SALT_LENGTH));
-  const iv = crypto.getRandomValues(new Uint8Array(AES_IV_LENGTH));
-  const key = await argon2DeriveKey(password, salt);
+  const iv   = crypto.getRandomValues(new Uint8Array(AES_IV_LENGTH));
+
+  // Derive face key material jika ada descriptor
+  const faceKeyMaterial = faceDescriptor
+    ? await faceDescriptorToKeyMaterial(faceDescriptor)
+    : undefined;
+
+  const key = await argon2DeriveKey(password, salt, faceKeyMaterial);
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     key,
@@ -320,8 +363,7 @@ async function aesEncrypt(data: Uint8Array, password: string): Promise<Uint8Arra
   return result;
 }
 
-async function aesDecrypt(data: Uint8Array, password: string): Promise<Uint8Array> {
-  // Check version byte
+async function aesDecrypt(data: Uint8Array, password: string, faceDescriptor?: Float32Array): Promise<Uint8Array> {
   const version = data[0];
 
   let salt: Uint8Array;
@@ -330,25 +372,28 @@ async function aesDecrypt(data: Uint8Array, password: string): Promise<Uint8Arra
   let key: CryptoKey;
 
   if (version === 0x02) {
-    // Argon2id KDF (new format)
     if (data.length < 1 + AES_SALT_LENGTH + AES_IV_LENGTH + 1) {
       throw new Error('Data terenkripsi terlalu pendek.');
     }
-    salt = data.slice(1, 1 + AES_SALT_LENGTH);
-    iv = data.slice(1 + AES_SALT_LENGTH, 1 + AES_SALT_LENGTH + AES_IV_LENGTH);
+    salt       = data.slice(1, 1 + AES_SALT_LENGTH);
+    iv         = data.slice(1 + AES_SALT_LENGTH, 1 + AES_SALT_LENGTH + AES_IV_LENGTH);
     ciphertext = data.slice(1 + AES_SALT_LENGTH + AES_IV_LENGTH);
-    key = await argon2DeriveKey(password, salt);
+
+    // Derive face key material jika ada — harus sama persis dengan saat enkripsi
+    const faceKeyMaterial = faceDescriptor
+      ? await faceDescriptorToKeyMaterial(faceDescriptor)
+      : undefined;
+    key = await argon2DeriveKey(password, salt, faceKeyMaterial);
   } else {
-    // Legacy PBKDF2 format (backward compatibility)
-    // Old format: [salt(16)][iv(12)][ciphertext]
+    // Legacy PBKDF2 (backward compat, no face support)
     const legacySaltLen = 16;
     if (data.length < legacySaltLen + AES_IV_LENGTH + 1) {
       throw new Error('Data terenkripsi terlalu pendek.');
     }
-    salt = data.slice(0, legacySaltLen);
-    iv = data.slice(legacySaltLen, legacySaltLen + AES_IV_LENGTH);
+    salt       = data.slice(0, legacySaltLen);
+    iv         = data.slice(legacySaltLen, legacySaltLen + AES_IV_LENGTH);
     ciphertext = data.slice(legacySaltLen + AES_IV_LENGTH);
-    key = await legacyDeriveKey(password, salt);
+    key        = await legacyDeriveKey(password, salt);
   }
 
   try {
@@ -619,7 +664,8 @@ export async function embedFiles(
     }
     const payloadJson = JSON.stringify({ files: filesData });
     const plainBytes = new TextEncoder().encode(payloadJson);
-    payloadBytes = await aesEncrypt(plainBytes, password);
+    // Face descriptor ikut menjadi bagian dari key derivation (2FA kriptografis)
+    payloadBytes = await aesEncrypt(plainBytes, password, faceDescriptor ?? undefined);
     methodFlag = 0x02;
   } else {
     const filesData = [];
@@ -730,7 +776,8 @@ export function checkForHiddenData(
 export async function extractFiles(
   buffer: ArrayBuffer,
   password?: string,
-  method?: EncryptionMethod | null
+  method?: EncryptionMethod | null,
+  liveDescriptor?: Float32Array  // descriptor dari scan verifikasi terbaru user
 ): Promise<{ files: HiddenFile[]; faceDescriptor: Float32Array | null }> {
   const uint8 = new Uint8Array(buffer);
 
@@ -796,19 +843,22 @@ export async function extractFiles(
     }
   } else if (methodFlag === 0x02) {
     if (!password) throw new Error('File ini memerlukan password (AES).');
-    const decrypted = await aesDecrypt(payloadBytes, password);
+    // Gunakan liveDescriptor (dari scan verifikasi user) sebagai bagian key derivation.
+    // Bukan storedFaceDescriptor dari file — itu hanya untuk UI matching check.
+    // Jika quantized hash dari liveDescriptor tidak sama dengan saat enkripsi → AES-GCM gagal.
+    const decrypted = await aesDecrypt(payloadBytes, password, liveDescriptor ?? undefined);
     let payloadJson: string;
     try {
       payloadJson = new TextDecoder().decode(decrypted);
     } catch {
-      throw new Error('Gagal mendekode data. Password mungkin salah.');
+      throw new Error('Gagal mendekode data. Password atau wajah mungkin salah.');
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let payloadObj: any;
     try {
       payloadObj = JSON.parse(payloadJson);
     } catch {
-      throw new Error('Gagal membaca data tersembunyi. Password mungkin salah atau file rusak.');
+      throw new Error('Gagal membaca data tersembunyi. Password atau wajah mungkin salah.');
     }
     if (!payloadObj.files || !Array.isArray(payloadObj.files)) {
       throw new Error('Format data tidak valid.');
@@ -894,7 +944,8 @@ export async function reEmbedFiles(
     }));
     const payloadJson = JSON.stringify({ files: filesData });
     const plainBytes = new TextEncoder().encode(payloadJson);
-    payloadBytes = await aesEncrypt(plainBytes, password);
+    // Wajah ikut sebagai bagian key derivation
+    payloadBytes = await aesEncrypt(plainBytes, password, faceDescriptor ?? undefined);
     methodFlag = 0x02;
   } else {
     const filesData = files.map((f) => ({
