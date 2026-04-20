@@ -592,6 +592,18 @@ export function App() {
   const [faceVerified, setFaceVerified] = useState(false);
   const [stegoHasFace, setStegoHasFace] = useState(false);
 
+  // Activity log state (Mode Pro)
+  const [activityLog, setActivityLog] = useState<string[]>([]);
+
+  const addLog = useCallback((entry: string) => {
+    const now = new Date();
+    const timestamp = now.toLocaleString('id-ID', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    setActivityLog((prev) => [...prev, `[${timestamp}] ${entry}`]);
+  }, []);
+
   const coverInputRef = useRef<HTMLInputElement>(null);
   const secretInputRef = useRef<HTMLInputElement>(null);
   const stegoInputRef = useRef<HTMLInputElement>(null);
@@ -874,6 +886,20 @@ export function App() {
       else if (cat === 'audio' || cat === 'video') sp.url = url;
       setStegoPreview(sp);
 
+      // Log entries
+      addLog(`File stego dibuat: ${defaultName} (${formatFileSize(blob.size)})`);
+      addLog(`Cover: ${coverFile.name}`);
+      if (renamedFiles.length > 0) {
+        addLog(`${renamedFiles.length} file rahasia disematkan`);
+        renamedFiles.forEach((f) => addLog(`  - ${f.name} (${formatFileSize(f.size)})`));
+      }
+      if (passwordCopy) {
+        addLog(`Enkripsi ditambahkan: ${methodToUse === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`);
+      } else {
+        addLog('Tanpa enkripsi password');
+      }
+      if (embedFaceDescriptor) addLog('Face Lock diaktifkan');
+
       // Clear password from memory after successful embed
       clearEmbedPassword();
       showToast('File berhasil disembunyikan! Password telah dihapus dari memori.', 'success');
@@ -911,6 +937,7 @@ export function App() {
     setSearchQuery('');
     setDecryptMethod('xor');
     setDecryptKeyType('password');
+    setActivityLog([]);  // reset log on new file
 
     const preview = await buildFilePreview(file);
     setStegoFilePreview(preview);
@@ -929,6 +956,10 @@ export function App() {
       setDetectedMethod(check.method);
       setStegoHasFace(check.hasFace);
       setFaceVerified(false);
+      addLog(`File stego dimuat: ${file.name} (${formatFileSize(file.size)})`);
+      if (check.method) addLog(`Metode enkripsi terdeteksi: ${check.method === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`);
+      if (check.hasFace) addLog('Face Lock terdeteksi pada file ini');
+      if (!check.hasPassword) addLog('File tidak terenkripsi password');
 
       // Pre-extract face descriptor from stego file (tersimpan di trailer, bukan payload)
       // Ini aman dilakukan tanpa password karena face descriptor ada di luar payload terenkripsi
@@ -1010,6 +1041,14 @@ export function App() {
       if (detectedMethod) setDecryptMethod(detectedMethod);
 
       clearDecryptPassword();
+
+      // Log entries
+      addLog(`Dekripsi berhasil: ${stegoFile?.name ?? 'file stego'}`);
+      addLog(`${files.length} file berhasil diekstrak`);
+      files.forEach((f) => addLog(`  - ${f.name} (${formatFileSize(f.size)})`));
+      if (detectedMethod) addLog(`Metode enkripsi: ${detectedMethod === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`);
+      if (faceDescriptor) addLog('Face Lock: terverifikasi');
+
       showToast(`Berhasil mendekripsi ${files.length} file! Password telah dihapus dari memori.`, 'success');
 
       const previews: Record<string, string> = {};
@@ -1065,6 +1104,8 @@ export function App() {
       setDecryptedFiles((prev) => [...prev, ...newFiles]);
       setFilePreviews((prev) => ({ ...prev, ...newPreviews }));
       setModified(true);
+      addLog(`${files.length} file ditambahkan ke payload`);
+      files.forEach((f) => addLog(`  + ${f.name} (${formatFileSize(f.size)})`));
       showToast(`${files.length} file ditambahkan.`, 'success');
     } catch (err) {
       showToast(`Error: ${(err as Error).message}`, 'error');
@@ -1679,16 +1720,7 @@ export function App() {
                         </div>
                       )}
 
-                      {/* Security info AES + Argon2 */}
-                      {(embedPassword || (embedKeyType === 'generate' && generatedKey)) && embedMethod === 'aes' && (
-                        <div className="flex items-start gap-2 px-3 py-2.5 bg-emerald-50/60 border border-emerald-200 rounded-xl">
-                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                          <div>
-                            <p className="text-[11px] font-semibold text-emerald-700">Argon2 + AES-256-GCM</p>
-                            <p className="text-[10px] text-emerald-600/80 mt-0.5">Key derivation menggunakan Argon2 (memory-hard) untuk perlindungan maksimal terhadap brute-force.</p>
-                          </div>
-                        </div>
-                      )}
+
 
                       {/* ── Face Lock (hanya Mode Pro / AES) ── */}
                       {embedMethod === 'aes' && (embedPassword || (embedKeyType === 'generate' && generatedKey)) && (
@@ -1848,7 +1880,7 @@ export function App() {
               <p className="text-sm text-slate-500 mt-1">Ekstrak file tersembunyi dari file stego Anda.</p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
               <div className="lg:col-span-1 space-y-5">
 
                 {/* Step 1: File Stego */}
@@ -2168,16 +2200,7 @@ export function App() {
                       )}
                     </div>
 
-                    {/* Security info for AES + Argon2 */}
-                    {newPassword && decryptMethod === 'aes' && (
-                      <div className="mt-3 flex items-start gap-2 px-3 py-2.5 bg-emerald-50/60 border border-emerald-200 rounded-xl animate-fadeIn">
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-[11px] font-semibold text-emerald-700">Argon2 + AES-256-GCM</p>
-                          <p className="text-[10px] text-emerald-600/80 mt-0.5">Key derivation menggunakan Argon2 (memory-hard).</p>
-                        </div>
-                      </div>
-                    )}
+
 
                     {hasAnyChanges && (
                       <button
@@ -2352,6 +2375,29 @@ export function App() {
                   </div>
                 )}
               </div>
+
+              {/* Log Panel — far right, only shown after decryption */}
+              {decryptionDone && (
+                <div className="lg:col-span-1">
+                  <div className="bg-slate-900 rounded-2xl border border-slate-700 p-4 sticky top-20 h-fit">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <h3 className="text-xs font-bold text-slate-200 uppercase tracking-widest">Log Aktivitas</h3>
+                    </div>
+                    <div className="space-y-1 max-h-[480px] overflow-y-auto pr-1 scrollbar-thin">
+                      {activityLog.length === 0 ? (
+                        <p className="text-[10px] text-slate-500 italic">Belum ada aktivitas tercatat.</p>
+                      ) : (
+                        activityLog.map((entry, i) => (
+                          <p key={i} className={`text-[10px] leading-snug font-mono break-words ${entry.startsWith('[') && entry.includes(']  -') ? 'text-slate-400 pl-2' : entry.startsWith('[') && entry.includes(']  +') ? 'text-emerald-400 pl-2' : 'text-slate-300'}`}>
+                            {entry}
+                          </p>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
