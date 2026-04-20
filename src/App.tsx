@@ -581,10 +581,18 @@ export function App() {
   const [faceVerified, setFaceVerified] = useState(false);
   const [stegoHasFace, setStegoHasFace] = useState(false);
 
+  // ──────────────────────────────────────────────
+  // NEW: Key feature states (Mode Pro)
+  // ──────────────────────────────────────────────
+  const [embedSecurityMode, setEmbedSecurityMode] = useState<'password' | 'key'>('password');
+  const [decryptSecurityMode, setDecryptSecurityMode] = useState<'password' | 'key'>('password');
+  const [generatedKeyForDownload, setGeneratedKeyForDownload] = useState<string | null>(null);
+
   const coverInputRef = useRef<HTMLInputElement>(null);
   const secretInputRef = useRef<HTMLInputElement>(null);
   const stegoInputRef = useRef<HTMLInputElement>(null);
   const addFileInputRef = useRef<HTMLInputElement>(null);
+  const keyFileInputRef = useRef<HTMLInputElement>(null);   // ← NEW for key upload in decrypt
 
   const showToast = useCallback((message: string, type: Toast['type']) => {
     const id = Math.random().toString(36).substring(2);
@@ -618,6 +626,20 @@ export function App() {
     return files;
   }, [decryptedFiles, filterCategory, searchQuery]);
 
+  // ──────────────────────────────────────────────
+  // NEW: Generate 50-character strong key (numbers, letters, symbols)
+  // ──────────────────────────────────────────────
+  const generateStrongKey = useCallback((): string => {
+    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?/~`';
+    let key = '';
+    const randomArray = new Uint32Array(50);
+    crypto.getRandomValues(randomArray);
+    for (let i = 0; i < 50; i++) {
+      key += charset[randomArray[i] % charset.length];
+    }
+    return key;
+  }, []);
+
   async function buildFilePreview(file: File): Promise<FilePreview> {
     const preview: FilePreview = { name: file.name, size: file.size, type: file.type };
     const cat = getFileCategory(file.type, file.name);
@@ -640,6 +662,8 @@ export function App() {
     setStegoPreview(null);
     setStegoOutputName('');
     setEditingStegoName(false);
+    setGeneratedKeyForDownload(null);           // ← NEW
+    setEmbedSecurityMode('password');           // ← NEW
   };
 
   // Reset face descriptor juga saat tab embed di-clear
@@ -795,7 +819,7 @@ export function App() {
     if (secretFiles.length === 0) return showToast('Tambahkan minimal satu file rahasia!', 'error');
 
     setEmbedding(true);
-    const passwordCopy = embedPassword; // Copy before clearing
+
     try {
       const renamedFiles = secretFiles.map((file, index) => {
         const customName = embedFileNames[index];
@@ -804,6 +828,15 @@ export function App() {
         }
         return file;
       });
+
+      // ── NEW: Key generation logic for Mode Pro ─────────────────────
+      let passwordCopy = embedPassword;
+      let tempGeneratedKey: string | null = null;
+
+      if (embedMethod === 'aes' && embedSecurityMode === 'key') {
+        passwordCopy = generateStrongKey();
+        tempGeneratedKey = passwordCopy;
+      }
 
       const methodToUse = passwordCopy ? embedMethod : undefined;
 
@@ -826,14 +859,22 @@ export function App() {
       else if (cat === 'audio' || cat === 'video') sp.url = url;
       setStegoPreview(sp);
 
-      // Clear password from memory after successful embed
-      clearEmbedPassword();
+      // Store generated key for download (only in key mode)
+      if (tempGeneratedKey) {
+        setGeneratedKeyForDownload(tempGeneratedKey);
+      }
+
+      // Clear only manual password (key is kept for download)
+      if (embedSecurityMode === 'password') {
+        clearEmbedPassword();
+      }
+
       showToast('File berhasil disembunyikan! Password telah dihapus dari memori.', 'success');
     } catch (err) {
       showToast(`Error: ${(err as Error).message}`, 'error');
     } finally {
-      // Always wipe the password copy
-      secureWipeString(passwordCopy);
+      // Always wipe the working copy (for key mode the string is still in generatedKeyForDownload until user downloads)
+      secureWipeString(embedPassword); // safe because key mode uses a fresh generated string
       setEmbedding(false);
     }
   };
@@ -862,6 +903,8 @@ export function App() {
     setFilterCategory('all');
     setSearchQuery('');
     setDecryptMethod('xor');
+    setDecryptSecurityMode('password');           // ← NEW reset
+    setGeneratedKeyForDownload(null);
 
     const preview = await buildFilePreview(file);
     setStegoFilePreview(preview);
@@ -882,18 +925,12 @@ export function App() {
       setFaceVerified(false);
 
       // Pre-extract face descriptor from stego file (tersimpan di trailer, bukan payload)
-      // Ini aman dilakukan tanpa password karena face descriptor ada di luar payload terenkripsi
       if (check.hasFace) {
         try {
-          // Extract dengan password kosong — akan gagal di payload tapi face descriptor sudah terbaca
           const { faceDescriptor } = await extractFiles(buffer, undefined, null).catch(() => ({ faceDescriptor: null, files: [] }));
-          // Jika no password stego atau bisa dibaca, ambil face descriptor-nya
-          // Untuk AES/XOR stego: face descriptor dibaca SEBELUM decrypt payload
-          // Kita extract langsung dari buffer trailer
           if (faceDescriptor) {
             setStoredFaceDescriptor(faceDescriptor);
           } else {
-            // Extract face bytes langsung dari trailer buffer
             const u8 = new Uint8Array(buffer);
             const FACE_BYTES_LEN = 128 * 4;
             const faceStart = u8.length - 10 - FACE_BYTES_LEN;
@@ -904,7 +941,6 @@ export function App() {
             }
           }
         } catch {
-          // fallback: extract face bytes langsung dari trailer
           const u8 = new Uint8Array(buffer);
           const FACE_BYTES_LEN = 128 * 4;
           const faceStart = u8.length - 10 - FACE_BYTES_LEN;
@@ -932,7 +968,6 @@ export function App() {
   const handleDecrypt = async () => {
     if (!stegoBuffer) return showToast('Pilih file stego terlebih dahulu!', 'error');
 
-    // Jika file punya face lock, wajib verifikasi wajah dulu
     if (stegoHasFace && !faceVerified) {
       showToast('File ini dilindungi wajah. Verifikasi wajah terlebih dahulu!', 'error');
       return;
@@ -943,7 +978,6 @@ export function App() {
     try {
       const { files, faceDescriptor } = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod);
 
-      // Simpan stored face descriptor untuk referensi (sudah diverifikasi sebelumnya)
       if (faceDescriptor) setStoredFaceDescriptor(faceDescriptor);
 
       setDecryptedFiles(files);
@@ -1027,7 +1061,7 @@ export function App() {
     if (!stegoBuffer || decryptedFiles.length === 0) return;
     setUpdating(true);
     const passwordToUse = passwordChanged ? newPassword : originalDecryptPassword;
-    const passwordCopy = passwordToUse; // Copy
+    const passwordCopy = passwordToUse;
     try {
       const newBlob = await reEmbedFiles(
         stegoBuffer, decryptedFiles,
@@ -1049,7 +1083,6 @@ export function App() {
       setModified(false);
       setPasswordChanged(false);
 
-      // Clear new password from memory after successful update
       clearNewPassword();
       showToast('File cover diperbarui dan diunduh! Password telah dihapus dari memori.', 'success');
     } catch (err) {
@@ -1151,7 +1184,6 @@ export function App() {
   };
 
   const clearStegoState = () => {
-    // Clear passwords from memory
     secureWipeString(decryptPassword);
     secureWipeString(newPassword);
     secureWipeString(originalDecryptPassword);
@@ -1182,7 +1214,10 @@ export function App() {
     setFaceVerified(false);
     setStoredFaceDescriptor(null);
     setStegoHasFace(false);
+    setDecryptSecurityMode('password');           // ← NEW
+    setGeneratedKeyForDownload(null);
     if (stegoInputRef.current) stegoInputRef.current.value = '';
+    if (keyFileInputRef.current) keyFileInputRef.current.value = '';
   };
 
   const renderEncryptionMethodSelector = (
@@ -1483,7 +1518,7 @@ export function App() {
                   )}
                 </section>
 
-                {/* Step 3: Password + Encryption Method (combined) */}
+                {/* Step 3: Password + Encryption Method (combined) + NEW Key Mode */}
                 <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2.5">
@@ -1500,26 +1535,75 @@ export function App() {
                     )}
                   </div>
 
-                  {/* Password input */}
-                  <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input
-                      type={showEmbedPassword ? 'text' : 'password'}
-                      value={embedPassword}
-                      onChange={(e) => setEmbedPassword(e.target.value)}
-                      placeholder="Masukkan password..."
-                      className="focus-ring w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-orange-300 transition-all"
-                    />
-                    <button onClick={() => setShowEmbedPassword(!showEmbedPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
-                      {showEmbedPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
+                  {/* ── NEW: Security Mode Toggle (only in Mode Pro / AES) ── */}
+                  {embedMethod === 'aes' && (
+                    <div className="mb-5 bg-slate-50 rounded-2xl p-1 grid grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmbedSecurityMode('password');
+                        }}
+                        className={`py-3 text-sm font-semibold rounded-[14px] transition-all flex items-center justify-center gap-2 ${
+                          embedSecurityMode === 'password'
+                            ? 'bg-white shadow-sm text-orange-700 border border-orange-200'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        🔑 Password Manual
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmbedSecurityMode('key');
+                          setEmbedPassword('');
+                        }}
+                        className={`py-3 text-sm font-semibold rounded-[14px] transition-all flex items-center justify-center gap-2 ${
+                          embedSecurityMode === 'key'
+                            ? 'bg-white shadow-sm text-orange-700 border border-orange-200'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        🔐 Buat Key Otomatis (50 karakter)
+                      </button>
+                    </div>
+                  )}
 
-                  {/* Password strength indicator */}
-                  <PasswordStrengthIndicator password={embedPassword} />
+                  {/* Password input — hidden when Key mode is active in Pro */}
+                  {!(embedMethod === 'aes' && embedSecurityMode === 'key') && (
+                    <div className="relative">
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type={showEmbedPassword ? 'text' : 'password'}
+                        value={embedPassword}
+                        onChange={(e) => setEmbedPassword(e.target.value)}
+                        placeholder="Masukkan password..."
+                        className="focus-ring w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-orange-300 transition-all"
+                      />
+                      <button onClick={() => setShowEmbedPassword(!showEmbedPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
+                        {showEmbedPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Password strength indicator — only for manual password */}
+                  {embedPassword && !(embedMethod === 'aes' && embedSecurityMode === 'key') && (
+                    <PasswordStrengthIndicator password={embedPassword} />
+                  )}
+
+                  {/* Key mode info box */}
+                  {embedMethod === 'aes' && embedSecurityMode === 'key' && (
+                    <div className="mt-3 p-4 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 flex flex-col items-center text-center">
+                      <KeyRound className="w-8 h-8 text-amber-500 mb-3" />
+                      <p className="font-bold text-amber-700 text-base">Key 50 Karakter Dibuat Otomatis</p>
+                      <p className="text-xs text-amber-600 mt-1 leading-snug">
+                        File <span className="font-mono bg-white px-2 py-px rounded">key.sty</span> akan tersedia untuk diunduh setelah embed berhasil.<br />
+                        <span className="text-amber-500">Password textbox disembunyikan untuk keamanan.</span>
+                      </p>
+                    </div>
+                  )}
 
                   {/* ── Face Lock (hanya Mode Pro / AES) ── */}
-                  {embedMethod === 'aes' && embedPassword && (
+                  {embedMethod === 'aes' && (embedPassword || embedSecurityMode === 'key') && (
                     <div className="mt-4 animate-slideDown">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-1.5">
@@ -1580,7 +1664,7 @@ export function App() {
                   <div className="mt-4">
                     <div className="flex items-center justify-between mb-2.5">
                       <label className="text-xs font-semibold text-slate-500">Jenis Keamanan</label>
-                      {!embedPassword && (
+                      {!embedPassword && embedSecurityMode !== 'key' && (
                         <span className="text-[10px] text-slate-400 flex items-center gap-1">
                           <Lock className="w-3 h-3" />
                           Jika tidak memakai password, file tidak di enkripsi
@@ -1590,7 +1674,7 @@ export function App() {
                     {renderEncryptionMethodSelector(
                       embedMethod,
                       (m) => { setEmbedMethod(m); resetStegoResult(); },
-                      !embedPassword
+                      !embedPassword && embedSecurityMode !== 'key'
                     )}
                   </div>
 
@@ -1615,9 +1699,11 @@ export function App() {
                   {embedding ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      {embedPassword && embedMethod === 'aes'
-                        ? 'Mengenkripsi dengan AES-256 + Argon2...'
-                        : 'Menyembunyikan...'}
+                      {embedMethod === 'aes' && embedSecurityMode === 'key'
+                        ? 'Mengenkripsi dengan AES-256 + Argon2 (key otomatis)...'
+                        : embedPassword && embedMethod === 'aes'
+                          ? 'Mengenkripsi dengan AES-256 + Argon2...'
+                          : 'Menyembunyikan...'}
                     </>
                   ) : (
                     <><LockKeyhole className="w-4 h-4" />Sembunyikan File</>
@@ -1660,11 +1746,36 @@ export function App() {
                         </div>
                       </div>
                     </div>
+
+                    {/* NEW: Download Key button — placed ABOVE the main file download */}
+                    {generatedKeyForDownload && (
+                      <div className="mt-4">
+                        <button
+                          onClick={() => {
+                            const blob = new Blob([generatedKeyForDownload], { type: 'text/plain' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = 'key.sty';
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            showToast('File key.sty berhasil diunduh! Simpan di tempat aman.', 'success');
+                          }}
+                          className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98] shadow-md shadow-amber-200"
+                        >
+                          <DownloadCloud className="w-4 h-4" />
+                          Unduh File Key (.sty)
+                        </button>
+                        <p className="text-center text-[10px] text-amber-500 mt-2">Key ini adalah password dekripsi Anda (50 karakter acak).</p>
+                      </div>
+                    )}
+
                     {/* Password cleared notice */}
                     <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl">
                       <Shield className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                       <span className="text-[11px] font-semibold text-blue-700">Password telah dihapus dari memori</span>
                     </div>
+
                     <a href={stegoResult.url} download={stegoOutputName || `stego_file.${stegoResult.extension}`} className="mt-4 w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl text-sm font-bold transition-colors active:scale-[0.98]">
                       <Download className="w-4 h-4" />Unduh File
                     </a>
@@ -1763,7 +1874,7 @@ export function App() {
                   )}
                 </section>
 
-                {/* Step 2: Password + Encryption Method */}
+                {/* Step 2: Password + Encryption Method — with Key support */}
                 {stegoFile && needsPassword && !decryptionDone && (
                   <section className="bg-white rounded-2xl border border-slate-200 p-5 animate-fadeUp card-hover">
                     <div className="flex items-center justify-between mb-3">
@@ -1774,20 +1885,90 @@ export function App() {
                       <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-wide">Diperlukan</span>
                     </div>
 
-                    {/* Password input */}
-                    <div className="relative">
-                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input
-                        type={showDecryptPassword ? 'text' : 'password'}
-                        value={decryptPassword}
-                        onChange={(e) => setDecryptPassword(e.target.value)}
-                        placeholder="Masukkan password..."
-                        className="focus-ring-accent w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-violet-300 transition-all"
-                      />
-                      <button onClick={() => setShowDecryptPassword(!showDecryptPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
-                        {showDecryptPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {/* ── NEW: Security Mode Toggle for Decrypt ── */}
+                    <div className="mb-5 bg-slate-50 rounded-2xl p-1 grid grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => setDecryptSecurityMode('password')}
+                        className={`py-3 text-sm font-semibold rounded-[14px] transition-all flex items-center justify-center gap-2 ${
+                          decryptSecurityMode === 'password'
+                            ? 'bg-white shadow-sm text-violet-700 border border-violet-200'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        🔑 Password Manual
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDecryptSecurityMode('key');
+                          setDecryptPassword('');
+                        }}
+                        className={`py-3 text-sm font-semibold rounded-[14px] transition-all flex items-center justify-center gap-2 ${
+                          decryptSecurityMode === 'key'
+                            ? 'bg-white shadow-sm text-violet-700 border border-violet-200'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        📤 Unggah File Key
                       </button>
                     </div>
+
+                    {/* Password input — hidden when using key file */}
+                    {decryptSecurityMode === 'password' && (
+                      <div className="relative">
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type={showDecryptPassword ? 'text' : 'password'}
+                          value={decryptPassword}
+                          onChange={(e) => setDecryptPassword(e.target.value)}
+                          placeholder="Masukkan password..."
+                          className="focus-ring-accent w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-violet-300 transition-all"
+                        />
+                        <button onClick={() => setShowDecryptPassword(!showDecryptPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
+                          {showDecryptPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Key file upload UI — password textbox is hidden */}
+                    {decryptSecurityMode === 'key' && (
+                      <div className="mt-1">
+                        <input
+                          ref={keyFileInputRef}
+                          type="file"
+                          accept=".sty,.txt"
+                          className="hidden"
+                          onChange={async (e: React.ChangeEvent<HTMLInputElement>) => {
+                            const selectedFile = e.target.files?.[0];
+                            if (!selectedFile) return;
+                            try {
+                              const keyText = await readFileAsText(selectedFile);
+                              const cleaned = keyText.trim();
+                              if (cleaned.length > 0) {
+                                setDecryptPassword(cleaned);
+                                showToast('Key berhasil dimuat dari file!', 'success');
+                              } else {
+                                showToast('File key kosong atau tidak valid.', 'error');
+                              }
+                            } catch {
+                              showToast('Gagal membaca file key.', 'error');
+                            }
+                            if (keyFileInputRef.current) keyFileInputRef.current.value = '';
+                          }}
+                        />
+                        <button
+                          onClick={() => keyFileInputRef.current?.click()}
+                          className="w-full border-2 border-dashed border-violet-300 hover:border-violet-400 bg-white rounded-2xl py-8 flex flex-col items-center justify-center gap-3 text-violet-600 hover:text-violet-700 transition-all"
+                        >
+                          <Upload className="w-6 h-6" />
+                          <div className="text-center">
+                            <p className="font-semibold">Unggah key.sty</p>
+                            <p className="text-xs text-violet-400">atau file .txt (50 karakter acak)</p>
+                          </div>
+                        </button>
+                      </div>
+                    )}
 
                     {/* Face verification (if stego has face lock) */}
                     {stegoHasFace && (
@@ -1804,7 +1985,6 @@ export function App() {
                             </div>
                             <div className="text-center">
                               <p className="text-xs font-semibold text-slate-600">Face Lock Aktif</p>
-                              <p className="text-[11px] text-slate-400 mt-0.5 leading-snug"></p>
                             </div>
                             <button
                               type="button"
