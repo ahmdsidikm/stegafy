@@ -1005,7 +1005,7 @@ export function App() {
       setEditingFileNames(new Set());
       setDecryptionDone(true);
       setOriginalDecryptPassword(passwordCopy);
-      setNewPassword('');
+      setNewPassword(passwordCopy);
       setPasswordChanged(false);
       setAllDecryptPreviewsOpen(false);
       setFilterCategory('all');
@@ -1078,9 +1078,8 @@ export function App() {
   const handleUpdateAndDownload = async () => {
     if (!stegoBuffer || decryptedFiles.length === 0) return;
     setUpdating(true);
-    // If user typed a new password use it, otherwise keep original
-    const passwordToUse = newPassword !== '' ? newPassword : originalDecryptPassword;
-    const passwordCopy = passwordToUse;
+    const passwordToUse = passwordChanged ? newPassword : originalDecryptPassword;
+    const passwordCopy = passwordToUse; // Copy
     try {
       const newBlob = await reEmbedFiles(
         stegoBuffer, decryptedFiles,
@@ -1538,13 +1537,7 @@ export function App() {
                 </section>
 
                 {/* Step 3: Password + Encryption Method (combined) */}
-                <section className={`rounded-2xl border p-5 card-hover overflow-visible transition-colors duration-300 ${
-                  useEmbedPassword
-                    ? embedMethod === 'aes'
-                      ? 'bg-emerald-50/40 border-emerald-200'
-                      : 'bg-amber-50/40 border-amber-200'
-                    : 'bg-white border-slate-200'
-                }`}>
+                <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover overflow-visible">
                   {/* Header with slider toggle */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2.5">
@@ -1699,13 +1692,9 @@ export function App() {
 
                       {/* ── Keamanan Ganda / Face Lock (hanya Mode Pro / AES) ── */}
                       {embedMethod === 'aes' && (embedPassword || (embedKeyType === 'generate' && generatedKey)) && (
-                        <div>
+                        <div className="overflow-visible">
                           {/* Toggle header */}
-                          <div className={`flex items-center justify-between py-2 px-3 rounded-xl border transition-colors duration-200 ${
-                            showFaceLockOption
-                              ? 'bg-emerald-50 border-emerald-200'
-                              : 'bg-slate-50 border-slate-200'
-                          }`}>
+                          <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-slate-50 border border-slate-200">
                             <div className="flex items-center gap-2">
                               <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
                                 <ScanFace className="w-3.5 h-3.5 text-emerald-600" />
@@ -2188,12 +2177,10 @@ export function App() {
                 )}
 
                 {/* Password/Key cleared notice after decryption */}
-                {decryptionDone && (
+                {decryptionDone && decryptKeyType === 'password' && (
                   <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl animate-fadeIn">
                     <Shield className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                    <span className="text-[11px] font-semibold text-blue-700">
-                      {decryptKeyType === 'keyfile' ? 'Key file telah dihapus dari memori' : 'Password dekripsi telah dihapus dari memori'}
-                    </span>
+                    <span className="text-[11px] font-semibold text-blue-700">Password dekripsi telah dihapus dari memori</span>
                   </div>
                 )}
 
@@ -2217,10 +2204,9 @@ export function App() {
                         value={newPassword}
                         onChange={(e) => {
                           setNewPassword(e.target.value);
-                          // Changed if user typed something different from original, or left blank (remove password), or changed method
-                          setPasswordChanged(true);
+                          setPasswordChanged(e.target.value !== originalDecryptPassword || decryptMethod !== (detectedMethod || 'xor'));
                         }}
-                        placeholder="Kosongkan untuk pakai password lama..."
+                        placeholder="Password baru..."
                         className="focus-ring w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-amber-300 transition-all"
                       />
                       <button onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
@@ -2246,7 +2232,7 @@ export function App() {
                         decryptMethod,
                         (m) => {
                           setDecryptMethod(m);
-                          setPasswordChanged(true);
+                          setPasswordChanged(newPassword !== originalDecryptPassword || m !== (detectedMethod || 'xor'));
                         },
                         !newPassword
                       )}
