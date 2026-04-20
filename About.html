@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tentang Stegafy — Dokumentasi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: #f8fafc;
+      color: #1e293b;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 0.9rem;
+      line-height: 1.7;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: #f97316; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── HEADER ── */
+    .site-header {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(255,255,255,0.88);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .header-inner {
+      max-width: 1100px; margin: 0 auto;
+      padding: 0 20px; height: 56px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      text-decoration: none; flex-shrink: 0; cursor: pointer;
+    }
+    .logo-icon {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, #f97316, #f59e0b);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 10px rgba(249,115,22,.28); font-size: 17px;
+    }
+    .logo-name { font-size: 0.95rem; font-weight: 800; color: #1e293b; line-height: 1.1; }
+    .logo-sub  { font-size: 0.67rem; color: #94a3b8; font-weight: 500; }
+
+    .nav-links {
+      display: flex; align-items: center; gap: 2px;
+      overflow-x: auto; scrollbar-width: none;
+    }
+    .nav-links::-webkit-scrollbar { display: none; }
+    .nav-links a {
+      white-space: nowrap; font-size: 0.78rem; font-weight: 600;
+      color: #64748b; padding: 6px 12px; border-radius: 8px;
+      transition: color .15s, background .15s; text-decoration: none;
+    }
+    .nav-links a:hover, .nav-links a.active { color: #ea6c0a; background: #fff7ed; }
+
+    .menu-btn {
+      display: none; background: #f1f5f9; border: 1px solid #e2e8f0;
+      border-radius: 8px; width: 36px; height: 36px;
+      align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
+    }
+    .menu-btn svg { width: 18px; height: 18px; stroke: #475569; fill: none; stroke-width: 2; stroke-linecap: round; }
+
+    .mobile-nav {
+      display: none; flex-direction: column;
+      background: #fff; border-bottom: 1px solid #e2e8f0;
+      padding: 10px 20px; gap: 2px;
+    }
+    .mobile-nav.open { display: flex; }
+    .mobile-nav a {
+      font-size: 0.84rem; font-weight: 600; color: #475569;
+      padding: 10px 12px; border-radius: 8px; text-decoration: none;
+      transition: color .15s, background .15s;
+    }
+    .mobile-nav a:hover { color: #ea6c0a; background: #fff7ed; }
+
+    /* ── LAYOUT ── */
+    .page-wrap { max-width: 1100px; margin: 0 auto; padding: 0 20px 80px; }
+
+    /* ── HERO ── */
+    .hero {
+      text-align: center; padding: 64px 0 52px; position: relative;
+    }
+    .hero::before {
+      content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      width: min(700px, 100%); height: 280px;
+      background: radial-gradient(ellipse at 50% 0%, rgba(249,115,22,.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #fff7ed; border: 1px solid #fed7aa; color: #ea6c0a;
+      font-size: 0.7rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+      padding: 5px 14px; border-radius: 999px; margin-bottom: 20px;
+    }
+    .hero h1 {
+      font-size: clamp(1.8rem, 5vw, 3.2rem); font-weight: 800;
+      letter-spacing: -0.03em; color: #1e293b; line-height: 1.1; margin-bottom: 16px;
+    }
+    .hero h1 span {
+      background: linear-gradient(120deg, #f97316, #f59e0b);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .hero-desc { font-size: 0.975rem; color: #64748b; max-width: 480px; margin: 0 auto 28px; }
+    .hero-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+    .chip {
+      background: #fff; border: 1px solid #e2e8f0; color: #475569;
+      font-size: 0.72rem; font-weight: 600; padding: 5px 12px; border-radius: 8px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.05);
+    }
+
+    /* ── TOC layout ── */
+    @media (min-width: 1100px) {
+      .layout-with-toc { display: grid; grid-template-columns: 1fr 190px; gap: 40px; align-items: start; }
+      .toc-sidebar {
+        position: sticky; top: 72px;
+        background: #fff; border: 1px solid #e2e8f0; border-radius: 16px;
+        padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+      }
+      .toc-title { font-size: 0.67rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 12px; }
+      .toc-sidebar a {
+        display: block; font-size: 0.75rem; font-weight: 500; color: #64748b;
+        padding: 5px 0 5px 10px; border-left: 2px solid transparent;
+        margin-left: -10px; text-decoration: none; transition: color .15s, border-color .15s;
+      }
+      .toc-sidebar a:hover, .toc-sidebar a.toc-active { color: #ea6c0a; border-left-color: #f97316; }
+    }
+    @media (max-width: 1099px) { .toc-sidebar { display: none; } .layout-with-toc { display: block; } }
+
+    /* ── SECTIONS ── */
+    section { margin-top: 56px; }
+
+    .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+    .section-num { font-size: 0.68rem; font-weight: 700; color: #f97316; letter-spacing: .08em; flex-shrink: 0; }
+    .section-line { flex: 1; height: 1px; background: #e2e8f0; }
+
+    h2 { font-size: clamp(1.2rem, 2.5vw, 1.65rem); font-weight: 800; letter-spacing: -0.025em; color: #1e293b; margin-bottom: 12px; }
+    h3 { font-size: 0.9rem; font-weight: 700; color: #334155; margin: 24px 0 8px; }
+    p  { color: #64748b; margin-bottom: 14px; }
+    strong { color: #334155; font-weight: 600; }
+
+    /* ── CARDS ── */
+    .card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+      padding: 20px 22px; box-shadow: 0 1px 3px rgba(0,0,0,.05);
+      transition: box-shadow .2s, transform .2s;
+    }
+    .card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.09); transform: translateY(-1px); }
+    .card.t-orange { border-top: 3px solid #fb923c; }
+    .card.t-violet { border-top: 3px solid #8b5cf6; }
+    .card.t-emerald{ border-top: 3px solid #10b981; }
+    .card.t-amber  { border-top: 3px solid #f59e0b; }
+    .card.t-blue   { border-top: 3px solid #3b82f6; }
+
+    .card-icon {
+      width: 38px; height: 38px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center; font-size: 17px; margin-bottom: 12px;
+    }
+    .ci-orange { background: #fff7ed; }
+    .ci-violet { background: #f5f3ff; }
+    .ci-emerald{ background: #ecfdf5; }
+    .ci-amber  { background: #fffbeb; }
+    .ci-blue   { background: #eff6ff; }
+
+    .card h3 { margin-top: 0; font-size: 0.855rem; }
+    .card p  { margin-bottom: 0; font-size: 0.82rem; }
+
+    /* ── GRIDS ── */
+    .g2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+    .g3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+    .g4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+
+    /* ── CALLOUTS ── */
+    .callout {
+      border-radius: 10px; padding: 14px 18px; margin: 18px 0;
+      font-size: 0.83rem; display: flex; gap: 11px; align-items: flex-start;
+      border: 1px solid transparent;
+    }
+    .callout-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+    .c-warn    { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+    .c-warn strong { color: #78350f; }
+    .c-info    { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+    .c-info strong { color: #1e40af; }
+    .c-success { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+    .c-success strong { color: #064e3b; }
+    .c-danger  { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+
+    /* ── CODE ── */
+    .code-block {
+      background: #0f172a; border-radius: 12px; padding: 18px 22px;
+      font-family: 'SF Mono','Fira Code','Cascadia Code',Consolas,monospace;
+      font-size: 12px; line-height: 1.9; overflow-x: auto; color: #94a3b8;
+      margin: 16px 0; border: 1px solid rgba(255,255,255,.04);
+    }
+    .kw  { color: #c084fc; }
+    .str { color: #86efac; }
+    .num { color: #fbbf24; }
+    .cmt { color: #334155; font-style: italic; }
+    .fn  { color: #fb923c; }
+    .key { color: #7dd3fc; }
+
+    /* ── FILE STRUCTURE DIAGRAM ── */
+    .file-struct { border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; margin: 16px 0; }
+    .fs-row { display: flex; align-items: stretch; border-bottom: 1px solid #e2e8f0; }
+    .fs-row:last-child { border-bottom: none; }
+    .fs-label {
+      width: 120px; min-width: 120px; padding: 11px 14px;
+      font-size: 0.67rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+      display: flex; align-items: center; border-right: 1px solid #e2e8f0; flex-shrink: 0;
+    }
+    .fs-content { flex: 1; padding: 11px 16px; color: #64748b; font-size: 0.8rem; display: flex; align-items: center; }
+    .fs-cover   .fs-label { background: #f8fafc; color: #64748b; }
+    .fs-header  .fs-label { background: #fff7ed; color: #ea6c0a; }
+    .fs-payload .fs-label { background: #f5f3ff; color: #7c3aed; }
+    .fs-face    .fs-label { background: #ecfdf5; color: #059669; }
+    .fs-log     .fs-label { background: #fffbeb; color: #d97706; }
+
+    /* ── BYTE ROW ── */
+    .byte-row { display: flex; flex-wrap: nowrap; gap: 3px; margin: 14px 0; overflow-x: auto; padding-bottom: 4px; }
+    .byte {
+      min-width: 36px; height: 36px; border-radius: 7px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: monospace; font-size: 10px; font-weight: 700; flex-shrink: 0;
+      border: 1px solid transparent;
+    }
+    .by-cover  { background: #f1f5f9; color: #64748b; border-color: #cbd5e1; }
+    .by-magic  { background: #ffedd5; color: #c2570a; border-color: #fed7aa; }
+    .by-enc    { background: #ede9fe; color: #6d28d9; border-color: #ddd6fe; }
+    .by-face   { background: #d1fae5; color: #047857; border-color: #a7f3d0; }
+    .by-dots   { background: transparent; color: #cbd5e1; border-color: transparent; font-size: 15px; }
+
+    .byte-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 0.73rem; color: #64748b; }
+    .ld { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+
+    /* ── FLOW ── */
+    .flow-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+    .flow-node { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .flow-box {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: 8px 14px; font-size: 0.75rem; font-weight: 600; color: #475569;
+      white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,.05); text-align: center; line-height: 1.4;
+    }
+    .fb-orange { background: #fff7ed; border-color: #fed7aa; color: #c2570a; }
+    .fb-violet { background: #f5f3ff; border-color: #ddd6fe; color: #6d28d9; }
+    .fb-emerald{ background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+    .fb-amber  { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+    .fb-blue   { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+    .fb-slate  { background: #f1f5f9; border-color: #cbd5e1; color: #475569; }
+    .flow-sub { font-size: 0.63rem; color: #94a3b8; font-weight: 500; }
+    .flow-arrow { color: #cbd5e1; font-size: 18px; flex-shrink: 0; }
+
+    /* ── XOR DEMO ── */
+    .xor-demo {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+      padding: 22px 24px; margin: 18px 0; box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    }
+    .xor-demo-title { font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 16px; }
+    .xor-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
+    .xor-label { font-size: 0.73rem; font-weight: 600; color: #64748b; min-width: 72px; }
+    .xor-bits { display: flex; gap: 4px; flex-wrap: wrap; }
+    .xor-bit { width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; font-family: monospace; }
+    .xb0 { background: #f1f5f9; color: #64748b; }
+    .xb1 { background: #ffedd5; color: #c2570a; }
+    .xbR { background: #ede9fe; color: #6d28d9; }
+    .xor-sep { width: 100%; height: 1px; background: #f1f5f9; margin: 8px 0; }
+
+    /* ── TABLE ── */
+    .tbl-wrap { overflow-x: auto; margin: 18px 0; border-radius: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.06); border: 1px solid #e2e8f0; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    thead th { padding: 13px 16px; text-align: left; font-size: 0.76rem; font-weight: 700; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+    thead th:first-child { color: #94a3b8; }
+    thead th:nth-child(2) { color: #d97706; }
+    thead th:nth-child(3) { color: #059669; }
+    thead th:nth-child(4) { color: #2563eb; }
+    tbody td { padding: 10px 16px; font-size: 0.8rem; color: #64748b; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #f8fafc; }
+    tbody td:first-child { color: #334155; font-weight: 500; }
+
+    .pill { display: inline-flex; align-items: center; font-size: 0.7rem; font-weight: 600; padding: 3px 9px; border-radius: 6px; white-space: nowrap; }
+    .pill-good    { background: #ecfdf5; color: #065f46; }
+    .pill-mid     { background: #fffbeb; color: #92400e; }
+    .pill-bad     { background: #fef2f2; color: #b91c1c; }
+    .pill-neutral { background: #f1f5f9; color: #475569; }
+
+    /* ── BADGE INLINE ── */
+    .bi { display: inline-flex; align-items: center; font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 5px; vertical-align: middle; }
+    .bi-orange { background: #ffedd5; color: #c2570a; }
+    .bi-violet { background: #ede9fe; color: #6d28d9; }
+
+    /* ── STEP LIST ── */
+    .step-list { display: flex; flex-direction: column; gap: 14px; margin: 18px 0; }
+    .step-item { display: flex; gap: 14px; align-items: flex-start; }
+    .step-num {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: #f97316; color: #fff; font-size: 0.72rem; font-weight: 800;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
+    }
+    .step-content h4 { font-size: 0.875rem; font-weight: 700; color: #334155; margin-bottom: 3px; }
+    .step-content p  { font-size: 0.82rem; margin-bottom: 0; }
+
+    /* ── FAQ ── */
+    .faq-list { margin-top: 20px; }
+    .faq-item { border-bottom: 1px solid #e2e8f0; }
+    .faq-item:first-child { border-top: 1px solid #e2e8f0; }
+    .faq-q {
+      display: flex; justify-content: space-between; align-items: center; gap: 16px;
+      padding: 16px 4px; cursor: pointer; font-weight: 600; font-size: 0.875rem;
+      color: #334155; user-select: none; transition: color .15s;
+    }
+    .faq-q:hover { color: #ea6c0a; }
+    .faq-icon {
+      width: 24px; height: 24px; border-radius: 6px; background: #f1f5f9;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+      font-size: 14px; color: #64748b; transition: background .15s, transform .25s;
+    }
+    .faq-item.open .faq-icon { background: #ffedd5; color: #ea6c0a; transform: rotate(45deg); }
+    .faq-a { max-height: 0; overflow: hidden; transition: max-height .35s ease; font-size: 0.83rem; color: #64748b; }
+    .faq-item.open .faq-a { max-height: 500px; }
+    .faq-a-inner { padding: 0 4px 18px; }
+
+    /* ── FOOTER ── */
+    footer { border-top: 1px solid #e2e8f0; padding: 32px 20px; text-align: center; font-size: 0.77rem; color: #94a3b8; background: #fff; }
+
+    /* ── REVEAL ANIMATION ── */
+    .reveal { opacity: 0; transform: translateY(16px); transition: opacity .5s ease, transform .5s ease; }
+    .reveal.vis { opacity: 1; transform: none; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .menu-btn { display: flex; }
+      .hero { padding: 44px 0 40px; }
+      .fs-label { width: 84px; min-width: 84px; font-size: 0.6rem; }
+    }
+    @media (max-width: 480px) {
+      .hero h1 { font-size: 1.75rem; }
+      .g2, .g3, .g4 { grid-template-columns: 1fr; }
+      .flow-row { justify-content: center; }
+    }
+
+    /* Inline code style */
+    code { font-family: 'SF Mono','Fira Code',Consolas,monospace; font-size: 11px; background: #f1f5f9; color: #475569; padding: 1px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="site-header">
+  <div class="header-inner">
+    <div class="logo" onclick="window.history.length>1?history.back():window.close()">
+      <div class="logo-icon">🛡️</div>
+      <div>
+        <div class="logo-name">Stegafy</div>
+        <div class="logo-sub">Dokumentasi</div>
+      </div>
+    </div>
+
+    <nav class="nav-links" id="navLinks">
+      <a href="#metode-stego">Metode Stego</a>
+      <a href="#enkripsi">Enkripsi</a>
+      <a href="#perbandingan">Standar vs Pro</a>
+      <a href="#face-lock">Face Lock</a>
+      <a href="#alur">Cara Pakai</a>
+      <a href="#keamanan">Keamanan</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+
+    <button class="menu-btn" id="menuBtn" aria-label="Menu">
+      <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+  </div>
+  <nav class="mobile-nav" id="mobileNav">
+    <a href="#metode-stego" onclick="closeMobileNav()">Metode Steganografi</a>
+    <a href="#enkripsi"     onclick="closeMobileNav()">Enkripsi</a>
+    <a href="#perbandingan" onclick="closeMobileNav()">Standar vs Pro</a>
+    <a href="#face-lock"    onclick="closeMobileNav()">Face Lock</a>
+    <a href="#alur"         onclick="closeMobileNav()">Cara Pakai</a>
+    <a href="#keamanan"     onclick="closeMobileNav()">Keamanan</a>
+    <a href="#faq"          onclick="closeMobileNav()">FAQ</a>
+  </nav>
+</header>
+
+<div class="page-wrap">
+
+  <!-- HERO -->
+  <div class="hero reveal">
+    <div class="hero-badge">📖 Panduan &amp; Dokumentasi</div>
+    <h1>Semua yang perlu kamu tahu<br>tentang <span>Stegafy</span></h1>
+    <p class="hero-desc">Cara kerja steganografi, metode enkripsi, perbandingan mode, dan panduan penggunaan lengkap.</p>
+    <div class="hero-tags">
+      <span class="chip">File Appending</span>
+      <span class="chip">AES-256-GCM</span>
+      <span class="chip">Argon2id</span>
+      <span class="chip">XOR Cipher</span>
+      <span class="chip">Face Lock</span>
+      <span class="chip">100% Client-Side</span>
+    </div>
+  </div>
+
+  <div class="layout-with-toc">
+  <div>
+
+    <!-- ══════════════════════════════════
+         1. METODE STEGANOGRAFI
+    ══════════════════════════════════ -->
+    <section id="metode-stego">
+      <div class="section-header reveal"><span class="section-num">01</span><div class="section-line"></div></div>
+      <h2 class="reveal">Metode Steganografi yang Dipakai</h2>
+      <p class="reveal">Stegafy menggunakan teknik <strong>File Appending Steganography</strong> — data rahasia dikemas, dienkripsi, lalu ditambahkan di bagian akhir file cover tanpa merusak konten aslinya sama sekali.</p>
+
+      <div class="callout c-info reveal">
+        <span class="callout-icon">💡</span>
+        <div><strong>Steganografi vs Kriptografi:</strong> Kriptografi mengacak data supaya tidak terbaca. Steganografi menyembunyikan <em>keberadaan</em> data itu sendiri. Stegafy menggabungkan keduanya — data disembunyikan sekaligus dienkripsi.</div>
+      </div>
+
+      <h3 class="reveal">Apa itu File Appending?</h3>
+      <p class="reveal">Hampir semua format file populer (JPEG, PNG, MP3, MP4) memiliki penanda akhir konten (<em>end-of-file marker</em>). Aplikasi pembaca hanya memproses data sampai penanda itu — byte apapun yang dituliskan setelahnya <strong>diabaikan sepenuhnya</strong>. Gambar tetap tampil, audio tetap diputar, seolah tidak ada yang berubah.</p>
+      <p class="reveal">Stegafy memanfaatkan ini: payload tersembunyi dikemas dan disisipkan tepat setelah penanda EOF file cover.</p>
+
+      <!-- Byte diagram -->
+      <div class="card reveal" style="margin:20px 0;">
+        <div style="font-size:.72rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;">Visualisasi Byte — File JPEG yang Menyimpan Payload</div>
+        <div class="byte-row">
+          <div class="byte by-cover">FF</div><div class="byte by-cover">D8</div>
+          <div class="byte by-cover">FF</div><div class="byte by-cover">E0</div>
+          <div class="byte by-dots">···</div>
+          <div class="byte by-cover">FF</div><div class="byte by-cover">D9</div>
+          <div class="byte by-magic">53</div><div class="byte by-magic">54</div>
+          <div class="byte by-magic">47</div><div class="byte by-magic">01</div>
+          <div class="byte by-enc">A3</div><div class="byte by-enc">7F</div>
+          <div class="byte by-enc">B2</div><div class="byte by-enc">C1</div>
+          <div class="byte by-dots">···</div>
+          <div class="byte by-face">F1</div><div class="byte by-face">8A</div>
+          <div class="byte by-face">2C</div>
+        </div>
+        <div class="byte-legend">
+          <span><span class="ld" style="background:#e2e8f0;border:1px solid #cbd5e1;"></span>Byte JPEG asli</span>
+          <span><span class="ld" style="background:#fed7aa;border:1px solid #fb923c;"></span>Magic header Stegafy</span>
+          <span><span class="ld" style="background:#ddd6fe;border:1px solid #a78bfa;"></span>Payload terenkripsi</span>
+          <span><span class="ld" style="background:#a7f3d0;border:1px solid #34d399;"></span>Face descriptor (opsional)</span>
+        </div>
+      </div>
+
+      <!-- File struct -->
+      <div class="card reveal" style="margin:16px 0;padding:22px;">
+        <div style="font-size:.72rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;">Struktur Lengkap File Stego</div>
+        <div class="file-struct">
+          <div class="fs-row fs-cover">
+            <div class="fs-label">File Cover</div>
+            <div class="fs-content">Byte asli file cover (JPEG/PNG/MP3/MP4/TXT) — tidak disentuh sama sekali</div>
+          </div>
+          <div class="fs-row fs-header">
+            <div class="fs-label">Magic Header</div>
+            <div class="fs-content">Identifier unik + versi format + flags: ada password? ada face lock? metode enkripsi apa?</div>
+          </div>
+          <div class="fs-row fs-payload">
+            <div class="fs-label">Payload</div>
+            <div class="fs-content">File-file rahasia + metadata (nama, tipe, ukuran, komentar) — dienkripsi AES-256-GCM atau XOR</div>
+          </div>
+          <div class="fs-row fs-face">
+            <div class="fs-label">Face Descriptor</div>
+            <div class="fs-content">128 nilai float32 (vektor wajah) — hanya ada jika Face Lock diaktifkan</div>
+          </div>
+          <div class="fs-row fs-log">
+            <div class="fs-label">Activity Log</div>
+            <div class="fs-content">Riwayat pembuatan &amp; modifikasi file — terenkripsi di dalam payload</div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="reveal">Kenapa Format Populer Bisa Menyimpan Data Tersembunyi?</h3>
+      <div class="g2 reveal">
+        <div class="card t-orange">
+          <div class="card-icon ci-orange">🖼️</div>
+          <h3>JPEG / PNG</h3>
+          <p>JPEG berakhir di byte <code>FF D9</code> (EOI marker). Data setelahnya diabaikan. PNG ditutup oleh chunk <code>IEND</code> berisi CRC — semua setelahnya tidak diproses decoder.</p>
+        </div>
+        <div class="card t-amber">
+          <div class="card-icon ci-amber">🎵</div>
+          <h3>MP3 / WAV</h3>
+          <p>MP3 dibaca frame per frame berdasarkan sync word. WAV menggunakan header <code>data</code> chunk dengan panjang eksplisit — audio player berhenti di batas tersebut.</p>
+        </div>
+        <div class="card t-violet">
+          <div class="card-icon ci-violet">🎬</div>
+          <h3>MP4 / Video</h3>
+          <p>Format MP4 (ISO Base Media) memetakan konten via atom/box berindeks. Data di luar atom yang diketahui tidak diproses player.</p>
+        </div>
+        <div class="card t-blue">
+          <div class="card-icon ci-blue">📄</div>
+          <h3>File Teks</h3>
+          <p>Payload biner ditambahkan setelah teks. Editor teks akan menampilkan karakter aneh di akhir file — sebaiknya jangan buka file teks stego di editor teks biasa.</p>
+        </div>
+      </div>
+
+      <div class="callout c-warn reveal">
+        <span class="callout-icon">⚠️</span>
+        <div><strong>Hati-hati rekompresi platform!</strong> Instagram, WhatsApp, dan Telegram (mode Foto) melakukan rekompresi otomatis yang <em>merusak</em> payload. Gunakan Telegram (kirim sebagai <em>File</em>), Google Drive, atau layanan cloud yang menjaga file asli.</div>
+      </div>
+
+      <h3 class="reveal">Perbandingan dengan Metode Steganografi Lain</h3>
+      <div class="tbl-wrap reveal">
+        <table>
+          <thead><tr><th>Metode</th><th>Cara Kerja</th><th>Kapasitas</th><th>Tahan Rekompresi</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>File Appending</strong> <span class="bi bi-orange">← Stegafy</span></td>
+              <td>Data ditempel setelah EOF marker</td>
+              <td><span class="pill pill-good">Tidak terbatas</span></td>
+              <td><span class="pill pill-bad">Tidak</span></td>
+            </tr>
+            <tr>
+              <td>LSB (Least Significant Bit)</td>
+              <td>Bit data disisip di bit terkecil tiap pixel</td>
+              <td><span class="pill pill-mid">~12.5% ukuran cover</span></td>
+              <td><span class="pill pill-bad">Tidak (rekompresi merusak)</span></td>
+            </tr>
+            <tr>
+              <td>DCT Steganografi</td>
+              <td>Data disematkan di koefisien DCT JPEG</td>
+              <td><span class="pill pill-bad">Terbatas</span></td>
+              <td><span class="pill pill-good">Ya</span></td>
+            </tr>
+            <tr>
+              <td>Metadata (EXIF/ID3)</td>
+              <td>Data disimpan di field metadata</td>
+              <td><span class="pill pill-bad">Sangat terbatas (KB)</span></td>
+              <td><span class="pill pill-bad">Tidak</span></td>
+            </tr>
+            <tr>
+              <td>Whitespace Stego</td>
+              <td>Spasi &amp; tab dikodekan sebagai bit</td>
+              <td><span class="pill pill-bad">Sangat terbatas</span></td>
+              <td><span class="pill pill-bad">Tidak</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout c-success reveal">
+        <span class="callout-icon">✅</span>
+        <div><strong>Mengapa File Appending?</strong> Kapasitas tidak terbatas, implementasi andal dan sederhana, tidak merusak kualitas media sama sekali, dan kompatibel luas dengan semua format yang didukung. Tradeoff: ukuran file bertambah dan bisa dideteksi lewat analisis forensik jika file sudah dicurigai.</div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════
+         2. ENKRIPSI
+    ══════════════════════════════════ -->
+    <section id="enkripsi">
+      <div class="section-header reveal"><span class="section-num">02</span><div class="section-line"></div></div>
+      <h2 class="reveal">Metode Enkripsi</h2>
+      <p class="reveal">Sebelum ditambahkan ke file cover, payload dienkripsi menggunakan salah satu dari dua metode yang bisa dipilih pengguna.</p>
+
+      <h3 class="reveal" style="color:#d97706;">⚡ XOR Cipher — Mode Standar</h3>
+      <p class="reveal">XOR (Exclusive OR) adalah operasi bitwise paling fundamental. Setiap byte data di-XOR dengan byte kunci yang diulang secara siklis. Hasilnya sangat cepat dan ringan, cocok untuk browser.</p>
+
+      <div class="xor-demo reveal">
+        <div class="xor-demo-title">Simulasi XOR — Enkripsi satu byte data</div>
+        <div class="xor-row">
+          <span class="xor-label">Plaintext</span>
+          <div class="xor-bits">
+            <div class="xor-bit xb0">0</div><div class="xor-bit xb1">1</div><div class="xor-bit xb0">0</div>
+            <div class="xor-bit xb1">1</div><div class="xor-bit xb0">0</div><div class="xor-bit xb0">0</div>
+            <div class="xor-bit xb1">1</div><div class="xor-bit xb0">0</div>
+          </div>
+          <span style="font-size:11px;color:#94a3b8;margin-left:4px;">= 0x52 ('R')</span>
+        </div>
+        <div class="xor-row"><span style="padding-left:72px;color:#cbd5e1;font-size:20px;width:100%;">⊕</span></div>
+        <div class="xor-row">
+          <span class="xor-label">Key byte</span>
+          <div class="xor-bits">
+            <div class="xor-bit xb1">1</div><div class="xor-bit xb1">1</div><div class="xor-bit xb0">0</div>
+            <div class="xor-bit xb0">0</div><div class="xor-bit xb1">1</div><div class="xor-bit xb0">0</div>
+            <div class="xor-bit xb1">1</div><div class="xor-bit xb1">1</div>
+          </div>
+          <span style="font-size:11px;color:#94a3b8;margin-left:4px;">= 0xCB</span>
+        </div>
+        <div class="xor-sep"></div>
+        <div class="xor-row">
+          <span class="xor-label" style="color:#7c3aed;font-weight:700;">Result</span>
+          <div class="xor-bits">
+            <div class="xor-bit xbR">1</div><div class="xor-bit xbR">0</div><div class="xor-bit xbR">0</div>
+            <div class="xor-bit xbR">1</div><div class="xor-bit xbR">1</div><div class="xor-bit xbR">0</div>
+            <div class="xor-bit xbR">0</div><div class="xor-bit xbR">1</div>
+          </div>
+          <span style="font-size:11px;color:#7c3aed;margin-left:4px;">= 0x99 (ciphertext)</span>
+        </div>
+      </div>
+
+      <div class="code-block reveal"><span class="cmt">// XOR encrypt — Stegafy</span>
+<span class="kw">function</span> <span class="fn">xorEncrypt</span>(data: <span class="key">Uint8Array</span>, key: <span class="key">Uint8Array</span>): <span class="key">Uint8Array</span> {
+  <span class="kw">const</span> out = <span class="kw">new</span> <span class="fn">Uint8Array</span>(data.length);
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="num">0</span>; i &lt; data.length; i++) {
+    out[i] = data[i] ^ key[i % key.length]; <span class="cmt">// kunci diulang siklis</span>
+  }
+  <span class="kw">return</span> out;
+}
+<span class="cmt">// Dekripsi = operasi yang sama persis (XOR bersifat simetris)</span></div>
+
+      <div class="callout c-warn reveal">
+        <span class="callout-icon">⚠️</span>
+        <div><strong>Keterbatasan XOR:</strong> Rentan terhadap <em>known-plaintext attack</em> dan analisis frekuensi jika kunci pendek atau berulang secara prediktabel. Gunakan untuk data tidak sensitif atau saat kecepatan lebih penting daripada keamanan kriptografis.</div>
+      </div>
+
+      <h3 class="reveal" style="color:#059669;">🛡️ AES-256-GCM — Mode Pro</h3>
+      <p class="reveal">Advanced Encryption Standard dengan kunci 256-bit dalam mode Galois/Counter (GCM). Standar enkripsi yang digunakan militer AS, perbankan global, dan infrastruktur internet (TLS/HTTPS).</p>
+
+      <div class="g2 reveal">
+        <div class="card t-emerald">
+          <div class="card-icon ci-emerald">🔐</div>
+          <h3>AES-256 — Block Cipher</h3>
+          <p>Data diproses dalam blok 128-bit menggunakan kunci 256-bit (2²⁵⁶ kemungkinan kunci). Tidak bisa di-brute-force dengan teknologi yang ada — bahkan komputer kuantum pun butuh triliunan tahun.</p>
+        </div>
+        <div class="card t-violet">
+          <div class="card-icon ci-violet">✅</div>
+          <h3>GCM — Authenticated Encryption</h3>
+          <p>GCM menghasilkan <em>authentication tag</em> 128-bit. Jika ciphertext dirusak atau dimodifikasi oleh pihak manapun, dekripsi langsung gagal dengan error — data palsu terdeteksi otomatis.</p>
+        </div>
+      </div>
+
+      <div class="flow-row reveal">
+        <div class="flow-node"><div class="flow-box fb-orange">Password</div><span class="flow-sub">input user</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node"><div class="flow-box fb-amber">Salt 16-byte<br><small style="font-size:10px;font-weight:400;">random per-file</small></div><span class="flow-sub">crypto.getRandomValues</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node"><div class="flow-box fb-violet">Argon2id KDF</div><span class="flow-sub">memory-hard, 64MB</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node"><div class="flow-box fb-blue">256-bit Key</div><span class="flow-sub">kunci AES</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node"><div class="flow-box fb-emerald">AES-256-GCM</div><span class="flow-sub">+ IV 12-byte random</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node"><div class="flow-box fb-slate">Ciphertext<br>+ Auth Tag</div><span class="flow-sub">payload akhir</span></div>
+      </div>
+
+      <h3 class="reveal">🧮 Argon2id — Key Derivation Function</h3>
+      <p class="reveal">Password pengguna tidak langsung dipakai sebagai kunci AES. Argon2id mengubahnya menjadi kunci 256-bit melalui proses yang sengaja dibuat <em>mahal secara komputasi dan memori</em>, sehingga serangan brute-force menjadi tidak praktis secara ekonomis.</p>
+
+      <div class="g3 reveal">
+        <div class="card t-violet">
+          <div class="card-icon ci-violet">🧠</div>
+          <h3>Memory: 64 MB</h3>
+          <p>Setiap percobaan password butuh 64 MB RAM. GPU dengan ribuan core pun dibatasi berapa banyak percobaan bisa berjalan paralel.</p>
+        </div>
+        <div class="card t-violet">
+          <div class="card-icon ci-violet">🔁</div>
+          <h3>3 Iterasi</h3>
+          <p>Password diproses tiga kali. Menambah waktu komputasi tanpa mengurangi kebutuhan memori. Total waktu ~1–3 detik.</p>
+        </div>
+        <div class="card t-violet">
+          <div class="card-icon ci-violet">⚙️</div>
+          <h3>Parallelism: 4</h3>
+          <p>Memanfaatkan 4 thread untuk efisiensi sambil membatasi paralelisme serangan.</p>
+        </div>
+      </div>
+
+      <div class="code-block reveal"><span class="cmt">// Argon2id — key derivation (Stegafy)</span>
+<span class="kw">const</span> key = <span class="kw">await</span> <span class="fn">argon2id</span>({
+  pass:       password,
+  salt:       salt,          <span class="cmt">// 16-byte random, unik per file</span>
+  hashLen:    <span class="num">32</span>,           <span class="cmt">// output 256-bit</span>
+  mem:        <span class="num">65536</span>,        <span class="cmt">// 64 MB</span>
+  time:       <span class="num">3</span>,            <span class="cmt">// iterasi</span>
+  parallelism:<span class="num">4</span>,
+  type:       <span class="fn">Argon2Type</span>.Argon2id,
+});
+
+<span class="cmt">// AES-256-GCM encrypt dengan IV unik</span>
+<span class="kw">const</span> iv = crypto.<span class="fn">getRandomValues</span>(<span class="kw">new</span> <span class="key">Uint8Array</span>(<span class="num">12</span>));
+<span class="kw">const</span> ct = <span class="kw">await</span> crypto.subtle.<span class="fn">encrypt</span>(
+  { name: <span class="str">'AES-GCM'</span>, iv, tagLength: <span class="num">128</span> },
+  aesKey, payload
+);</div>
+    </section>
+
+    <!-- ══════════════════════════════════
+         3. PERBANDINGAN
+    ══════════════════════════════════ -->
+    <section id="perbandingan">
+      <div class="section-header reveal"><span class="section-num">03</span><div class="section-line"></div></div>
+      <h2 class="reveal">Mode Standar vs Mode Pro</h2>
+      <p class="reveal">Pilih sesuai kebutuhan antara kecepatan dan keamanan kriptografis.</p>
+
+      <div class="tbl-wrap reveal">
+        <table>
+          <thead>
+            <tr><th>Fitur</th><th>⚡ Mode Standar (XOR)</th><th>🛡️ Mode Pro (AES-256)</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Algoritma</td><td>XOR Cipher</td><td>AES-256-GCM</td></tr>
+            <tr><td>Key Derivation</td><td>SHA-256 dari password</td><td>Argon2id (memory-hard)</td></tr>
+            <tr><td>Kecepatan</td><td><span class="pill pill-good">Sangat Cepat (&lt;100ms)</span></td><td><span class="pill pill-mid">1–5 detik (Argon2)</span></td></tr>
+            <tr><td>Kekuatan Enkripsi</td><td><span class="pill pill-mid">Dasar</span></td><td><span class="pill pill-good">Sangat Kuat</span></td></tr>
+            <tr><td>Tahan Brute Force</td><td><span class="pill pill-bad">Rentan</span></td><td><span class="pill pill-good">Sangat Tahan</span></td></tr>
+            <tr><td>Authenticated Encryption</td><td><span class="pill pill-bad">Tidak</span></td><td><span class="pill pill-good">Ya (tag 128-bit)</span></td></tr>
+            <tr><td>Deteksi Tampering</td><td><span class="pill pill-bad">Tidak bisa</span></td><td><span class="pill pill-good">Otomatis</span></td></tr>
+            <tr><td>Face Lock</td><td><span class="pill pill-bad">Tidak tersedia</span></td><td><span class="pill pill-good">Tersedia</span></td></tr>
+            <tr><td>Generate Key Otomatis</td><td><span class="pill pill-bad">Tidak</span></td><td><span class="pill pill-good">Key 50-char acak</span></td></tr>
+            <tr><td>Tanpa Password</td><td><span class="pill pill-good">Bisa</span></td><td><span class="pill pill-neutral">Wajib password/key</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="g2 reveal">
+        <div class="card t-amber">
+          <div class="card-icon ci-amber">⚡</div>
+          <h3>Kapan pakai Mode Standar?</h3>
+          <p>Kamu hanya ingin menyembunyikan file dari pandangan umum, bukan dari pihak yang aktif mencuriga. Data tidak terlalu sensitif. Kecepatan lebih penting.</p>
+        </div>
+        <div class="card t-emerald">
+          <div class="card-icon ci-emerald">🛡️</div>
+          <h3>Kapan pakai Mode Pro?</h3>
+          <p>Data benar-benar sensitif: dokumen pribadi, keuangan, hukum. Atau kamu ingin Face Lock dan kunci yang tidak bisa ditebak manusia.</p>
+        </div>
+      </div>
+
+      <div class="callout c-warn reveal">
+        <span class="callout-icon">⚠️</span>
+        <div><strong>XOR bukan enkripsi yang kuat.</strong> Dengan password pendek dan data yang diketahui sebagian (<em>known-plaintext attack</em>), XOR bisa dipecahkan. Gunakan Mode Pro untuk data sensitif.</div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════
+         4. FACE LOCK
+    ══════════════════════════════════ -->
+    <section id="face-lock">
+      <div class="section-header reveal"><span class="section-num">04</span><div class="section-line"></div></div>
+      <h2 class="reveal">Face Lock — Keamanan Biometrik</h2>
+      <p class="reveal">Eksklusif Mode Pro. File hanya bisa didekripsi jika wajah yang memindai cocok dengan wajah yang didaftarkan saat enkripsi. Semua pemrosesan terjadi <strong>100% di browser</strong> — tidak ada data wajah yang pernah dikirim ke server.</p>
+
+      <div class="flow-row reveal">
+        <div class="flow-node"><div class="flow-box fb-orange">Kamera</div><span class="flow-sub">getUserMedia</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node"><div class="flow-box fb-amber">Deteksi Wajah</div><span class="flow-sub">TinyFaceDetector</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node"><div class="flow-box fb-violet">68 Landmark</div><span class="flow-sub">faceLandmark68Net</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node"><div class="flow-box fb-blue">128-float32</div><span class="flow-sub">faceRecognitionNet</span></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node"><div class="flow-box fb-emerald">Simpan di file</div><span class="flow-sub">terenkripsi AES</span></div>
+      </div>
+
+      <div class="g2 reveal">
+        <div class="card t-orange">
+          <div class="card-icon ci-orange">📸</div>
+          <h3>Saat Enroll (Enkripsi)</h3>
+          <p>Wajah dipindai, 128 nilai float32 diekstrak menjadi vektor fitur, lalu disimpan terenkripsi di dalam file stego. Vektor ini tidak bisa dibalikkan menjadi foto wajahmu.</p>
+        </div>
+        <div class="card t-emerald">
+          <div class="card-icon ci-emerald">✅</div>
+          <h3>Saat Verify (Dekripsi)</h3>
+          <p>Wajah dipindai ulang, vektor baru dihitung, lalu jarak Euclidean antara keduanya dihitung. Jika di bawah threshold 0.5, akses diberikan.</p>
+        </div>
+      </div>
+
+      <div class="code-block reveal"><span class="cmt">// Euclidean distance antara dua descriptor wajah</span>
+<span class="kw">function</span> <span class="fn">faceDescriptorDistance</span>(a: <span class="key">Float32Array</span>, b: <span class="key">Float32Array</span>) {
+  <span class="kw">let</span> sum = <span class="num">0</span>;
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="num">0</span>; i &lt; a.length; i++) {
+    sum += (a[i] - b[i]) ** <span class="num">2</span>;
+  }
+  <span class="kw">return</span> Math.<span class="fn">sqrt</span>(sum);
+}
+
+<span class="cmt">// Threshold default: 0.5</span>
+<span class="cmt">// distance &lt; 0.5 → wajah cocok → akses diberikan</span>
+<span class="kw">const</span> FACE_MATCH_THRESHOLD = <span class="num">0.5</span>;
+<span class="kw">const</span> isMatch = <span class="fn">faceDescriptorDistance</span>(live, stored) &lt; FACE_MATCH_THRESHOLD;</div>
+
+      <div class="callout c-warn reveal">
+        <span class="callout-icon">⚠️</span>
+        <div><strong>Selalu simpan password sebagai backup!</strong> Perubahan penampilan drastis (kacamata baru, rambut berbeda, pencahayaan sangat buruk) bisa membuat Face Lock gagal. Password tetap bisa digunakan sebagai akses alternatif.</div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════
+         5. ALUR PENGGUNAAN
+    ══════════════════════════════════ -->
+    <section id="alur">
+      <div class="section-header reveal"><span class="section-num">05</span><div class="section-line"></div></div>
+      <h2 class="reveal">Alur Penggunaan</h2>
+
+      <h3 class="reveal" style="color:#ea6c0a;">🔒 Menyembunyikan File</h3>
+      <div class="step-list reveal">
+        <div class="step-item">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h4>Pilih File Cover</h4>
+            <p>Upload file wadah — gambar (JPEG/PNG/GIF/WebP), audio (MP3/WAV), video (MP4), atau teks. File ini tetap bisa dibuka normal setelah proses.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h4>Tambah File Rahasia</h4>
+            <p>Satu atau lebih file apapun. Tambahkan komentar per-file jika perlu. Nama file bisa diubah untuk menyamarkan nama aslinya.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h4>Pilih Metode &amp; Password</h4>
+            <p><strong>Mode Standar (XOR)</strong> — cepat, password opsional. <strong>Mode Pro (AES-256)</strong> — keamanan penuh, password manual atau generated key 50 karakter kriptografis.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h4>Face Lock (Opsional, Mode Pro)</h4>
+            <p>Scan wajahmu untuk menambah lapisan keamanan biometrik. Vektor wajah akan dienkripsi bersama payload.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num">5</div>
+          <div class="step-content">
+            <h4>Unduh File Stego</h4>
+            <p>Klik "Sembunyikan &amp; Enkripsi". Jika pakai generated key, unduh <code>key.sty</code> dan simpan di tempat aman yang berbeda dari file stego.</p>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="reveal" style="color:#7c3aed;margin-top:32px;">🔓 Mengekstrak File</h3>
+      <div class="step-list reveal">
+        <div class="step-item">
+          <div class="step-num" style="background:#8b5cf6;">1</div>
+          <div class="step-content">
+            <h4>Upload File Stego</h4>
+            <p>Sistem otomatis mendeteksi keberadaan payload, metode enkripsi, dan apakah ada Face Lock.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:#8b5cf6;">2</div>
+          <div class="step-content">
+            <h4>Verifikasi Identitas</h4>
+            <p>Masukkan password atau upload file key. Jika ada Face Lock, verifikasi wajah dahulu sebelum memasukkan password.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:#8b5cf6;">3</div>
+          <div class="step-content">
+            <h4>Unduh File Tersembunyi</h4>
+            <p>File rahasia muncul lengkap dengan nama, ukuran, dan komentar asli. Unduh satu per satu atau sekaligus sebagai ZIP.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:#8b5cf6;">4</div>
+          <div class="step-content">
+            <h4>Edit &amp; Re-Embed (Opsional)</h4>
+            <p>Ubah komentar, tambah/hapus file, atau ganti password — lalu klik "Perbarui File Stego" untuk menyimpan perubahan kembali ke file.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════
+         6. KEAMANAN
+    ══════════════════════════════════ -->
+    <section id="keamanan">
+      <div class="section-header reveal"><span class="section-num">06</span><div class="section-line"></div></div>
+      <h2 class="reveal">Model Keamanan</h2>
+
+      <div class="g2 reveal">
+        <div class="card t-emerald">
+          <div class="card-icon ci-emerald">🖥️</div>
+          <h3>100% Client-Side</h3>
+          <p>Semua kriptografi berjalan di browser via Web Crypto API. Tidak ada file, password, atau kunci yang pernah dikirim ke server mana pun.</p>
+        </div>
+        <div class="card t-emerald">
+          <div class="card-icon ci-emerald">🧹</div>
+          <h3>Memory Wiping</h3>
+          <p>Setelah operasi selesai, password dihapus dari memori JavaScript menggunakan <code>secureWipeString()</code> untuk meminimalkan jejak di RAM.</p>
+        </div>
+        <div class="card t-emerald">
+          <div class="card-icon ci-emerald">🎲</div>
+          <h3>Salt Unik per File</h3>
+          <p>Setiap enkripsi menggunakan salt 16-byte baru dari <code>crypto.getRandomValues()</code>. Mencegah serangan rainbow table dan pre-computation.</p>
+        </div>
+        <div class="card t-emerald">
+          <div class="card-icon ci-emerald">🔏</div>
+          <h3>IV Acak per Operasi</h3>
+          <p>AES-GCM menggunakan IV 12-byte baru setiap enkripsi. Ciphertext selalu berbeda meski plaintext dan kunci sama — mencegah known-ciphertext analysis.</p>
+        </div>
+      </div>
+
+      <div class="callout c-warn reveal">
+        <span class="callout-icon">⚠️</span>
+        <div><strong>Batas Perlindungan:</strong> Stegafy tidak melindungi dari steganalisis aktif — jika seseorang sudah curiga bahwa file menyimpan data tersembunyi dan melakukan analisis forensik, <em>keberadaan</em> payload bisa terdeteksi (meski <em>isinya</em> tetap terenkripsi kuat). Keamanan konten sepenuhnya bergantung pada kekuatan password.</div>
+      </div>
+
+      <div class="callout c-info reveal">
+        <span class="callout-icon">💡</span>
+        <div><strong>Tips Password Kuat:</strong> Minimal 16 karakter, campuran huruf besar/kecil, angka, dan simbol. Atau gunakan fitur <em>Generate Key</em> yang membuat kunci 50 karakter kriptografis acak — entropi jauh lebih tinggi dari password manual mana pun.</div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════
+         7. FAQ
+    ══════════════════════════════════ -->
+    <section id="faq">
+      <div class="section-header reveal"><span class="section-num">07</span><div class="section-line"></div></div>
+      <h2 class="reveal">FAQ</h2>
+
+      <div class="faq-list reveal">
+        <div class="faq-item">
+          <div class="faq-q" onclick="toggleFaq(this)">Apakah file cover rusak setelah disematkan data?<span class="faq-icon">+</span></div>
+          <div class="faq-a"><div class="faq-a-inner">Tidak. File cover tetap bisa dibuka dan berfungsi normal — gambar tetap tampil, audio tetap diputar. Data tersembunyi hanya ditambahkan di luar batas konten utama file, yang diabaikan oleh aplikasi pembaca biasa.</div></div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q" onclick="toggleFaq(this)">Berapa banyak file yang bisa disembunyikan?<span class="faq-icon">+</span></div>
+          <div class="faq-a"><div class="faq-a-inner">Tidak ada batasan jumlah. File stego akan berukuran file cover + total semua file rahasia + overhead kecil (header, salt, IV). Satu-satunya batas praktis adalah memori browser dan kenyamanan pengguna.</div></div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q" onclick="toggleFaq(this)">Apakah data bisa dipulihkan jika password hilang?<span class="faq-icon">+</span></div>
+          <div class="faq-a"><div class="faq-a-inner">Tidak. AES-256 yang diimplementasikan dengan benar tidak memiliki backdoor. Jika password hilang dan tidak ada backup file key, data tidak dapat dipulihkan. Selalu simpan password atau file <code>key.sty</code> di tempat yang aman dan terpisah.</div></div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q" onclick="toggleFaq(this)">Kenapa file stego rusak setelah dikirim lewat WhatsApp/Instagram?<span class="faq-icon">+</span></div>
+          <div class="faq-a"><div class="faq-a-inner">Platform tersebut melakukan rekompresi otomatis pada gambar dan video. Ini mengubah byte-byte di luar konten visual dan merusak payload. Gunakan Telegram (kirim sebagai <em>File</em>), Google Drive, Dropbox, atau email dengan attachment untuk menjaga integritas file.</div></div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q" onclick="toggleFaq(this)">Apakah data wajah dikirim ke server?<span class="faq-icon">+</span></div>
+          <div class="faq-a"><div class="faq-a-inner">Tidak sama sekali. Model AI face-api.js berjalan sepenuhnya di browser via WebGL. Vektor wajah 128-float32 hanya tersimpan di dalam file stego itu sendiri — tidak pernah meninggalkan perangkatmu.</div></div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q" onclick="toggleFaq(this)">Apa itu file .sty dan mengapa lebih aman dari password biasa?<span class="faq-icon">+</span></div>
+          <div class="faq-a"><div class="faq-a-inner">File <code>.sty</code> berisi kunci 50 karakter acak yang di-generate via <code>crypto.getRandomValues()</code> — sumber keacakan kriptografis browser. Entropi-nya jauh lebih tinggi dari password yang diingat manusia. Simpan file ini terpisah dari file stego karena hilangnya file key = data tidak bisa dipulihkan.</div></div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q" onclick="toggleFaq(this)">Bisakah orang lain tahu bahwa sebuah file adalah file stego?<span class="faq-icon">+</span></div>
+          <div class="faq-a"><div class="faq-a-inner">Secara visual tidak terlihat perbedaan. Namun dengan analisis forensik (steganalisis) seperti membandingkan ukuran file yang tidak biasa atau mencari magic header Stegafy, keberadaan payload bisa terdeteksi. Isi payload tetap terenkripsi dan tidak bisa dibaca tanpa kunci yang benar.</div></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- TOC Sidebar -->
+  <aside class="toc-sidebar">
+    <div class="toc-title">Di halaman ini</div>
+    <a href="#metode-stego">01 Metode Stego</a>
+    <a href="#enkripsi">02 Enkripsi</a>
+    <a href="#perbandingan">03 Standar vs Pro</a>
+    <a href="#face-lock">04 Face Lock</a>
+    <a href="#alur">05 Cara Pakai</a>
+    <a href="#keamanan">06 Keamanan</a>
+    <a href="#faq">07 FAQ</a>
+  </aside>
+
+  </div>
+</div><!-- /page-wrap -->
+
+<footer>
+  <p>Stegafy &copy; 2026 — Semua pemrosesan berjalan di browser kamu.</p>
+  <p style="margin-top:5px;opacity:.6;">AES-256-GCM · Argon2id · face-api.js · Web Crypto API · File Appending Steganography</p>
+</footer>
+
+<script>
+  // Mobile menu
+  document.getElementById('menuBtn').addEventListener('click', () => {
+    document.getElementById('mobileNav').classList.toggle('open');
+  });
+  function closeMobileNav() { document.getElementById('mobileNav').classList.remove('open'); }
+
+  // FAQ
+  function toggleFaq(el) {
+    const item = el.closest('.faq-item');
+    const wasOpen = item.classList.contains('open');
+    document.querySelectorAll('.faq-item.open').forEach(i => i.classList.remove('open'));
+    if (!wasOpen) item.classList.add('open');
+  }
+
+  // Scroll reveal
+  const ro = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('vis'); ro.unobserve(e.target); } });
+  }, { threshold: 0.07 });
+  document.querySelectorAll('.reveal').forEach(el => ro.observe(el));
+
+  // Active nav highlight
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('.nav-links a');
+  const tocLinks = document.querySelectorAll('.toc-sidebar a');
+
+  const ao = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        const id = '#' + e.target.id;
+        navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === id));
+        tocLinks.forEach(a => a.classList.toggle('toc-active', a.getAttribute('href') === id));
+      }
+    });
+  }, { threshold: 0.4 });
+  sections.forEach(s => ao.observe(s));
+</script>
+</body>
+</html>
