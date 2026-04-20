@@ -1080,6 +1080,7 @@ export function App() {
     setEditingComments((prev) => { const next = new Set(prev); next.delete(confirmDialog.fileId); return next; });
     setEditingFileNames((prev) => { const next = new Set(prev); next.delete(confirmDialog.fileId); return next; });
     setModified(true);
+    addLog(`File dihapus dari payload: ${confirmDialog.fileName}`);
     setConfirmDialog({ open: false, fileId: '', fileName: '' });
     showToast('File berhasil dihapus.', 'info');
   };
