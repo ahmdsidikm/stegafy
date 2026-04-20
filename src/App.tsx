@@ -1534,7 +1534,7 @@ export function App() {
                 </section>
 
                 {/* Step 3: Password + Encryption Method (combined) */}
-                <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
+                <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover overflow-visible">
                   {/* Header with slider toggle */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2.5">
@@ -1567,7 +1567,7 @@ export function App() {
 
                   {/* Password & Keamanan content — only visible when toggle ON */}
                   {useEmbedPassword && (
-                    <div className="space-y-3 animate-slideDown">
+                    <div className="space-y-3 animate-slideDown overflow-visible pb-1">
                       {/* Encryption method selector */}
                       <div>
                         <div className="flex items-center justify-between mb-2.5">
@@ -1688,7 +1688,7 @@ export function App() {
 
                       {/* ── Face Lock (hanya Mode Pro / AES) ── */}
                       {embedMethod === 'aes' && (embedPassword || (embedKeyType === 'generate' && generatedKey)) && (
-                        <div className="animate-slideDown">
+                        <div className="overflow-visible">
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-1.5">
                               <ScanFace className="w-3.5 h-3.5 text-emerald-600" />
@@ -1943,8 +1943,8 @@ export function App() {
                       <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-wide">Diperlukan</span>
                     </div>
 
-                    {/* Key type toggle (only for AES) */}
-                    {detectedMethod === 'aes' && (
+                    {/* Key type toggle — tampil untuk semua file berpassword, bukan hanya AES */}
+                    {needsPassword && (
                       <div className="mb-3 animate-fadeIn">
                         <label className="text-xs font-semibold text-slate-500 mb-2 block">Metode Input Kunci</label>
                         <div className="grid grid-cols-2 gap-2">
@@ -1995,8 +1995,8 @@ export function App() {
                       </div>
                     )}
 
-                    {/* Key file upload */}
-                    {decryptKeyType === 'keyfile' && detectedMethod === 'aes' && (
+                    {/* Key file upload — untuk semua tipe enkripsi */}
+                    {decryptKeyType === 'keyfile' && (
                       <div className="animate-slideDown">
                         <input ref={keyFileInputRef} type="file" accept=".sty,.txt" className="hidden" onChange={handleKeyFileUpload} />
                         {!decryptPassword ? (
@@ -2116,8 +2116,8 @@ export function App() {
                   </button>
                 )}
 
-                {/* Password cleared notice after decryption */}
-                {decryptionDone && (
+                {/* Password/Key cleared notice after decryption */}
+                {decryptionDone && decryptKeyType === 'password' && (
                   <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl animate-fadeIn">
                     <Shield className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                     <span className="text-[11px] font-semibold text-blue-700">Password dekripsi telah dihapus dari memori</span>
