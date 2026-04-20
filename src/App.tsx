@@ -868,10 +868,25 @@ export function App() {
 
       const methodToUse = passwordCopy ? embedMethod : undefined;
 
+      // Build creation log to embed in payload
+      const now = new Date();
+      const ts = now.toLocaleString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const creationLog: string[] = [
+        `[${ts}] File stego dibuat`,
+        `[${ts}] Cover: ${coverFile.name}`,
+        `[${ts}] ${renamedFiles.length} file rahasia disematkan`,
+        ...renamedFiles.map((f) => `[${ts}]   - ${f.name} (${formatFileSize(f.size)})`),
+        ...(passwordCopy
+          ? [`[${ts}] Enkripsi: ${methodToUse === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`]
+          : [`[${ts}] Tanpa enkripsi password`]),
+        ...(embedFaceDescriptor ? [`[${ts}] Face Lock diaktifkan`] : []),
+      ];
+
       const { blob, extension } = await embedFiles(
         coverFile, renamedFiles, passwordCopy || undefined,
         embedComments, methodToUse,
-        embedFaceDescriptor ?? undefined
+        embedFaceDescriptor ?? undefined,
+        creationLog
       );
 
       const url = URL.createObjectURL(blob);
@@ -886,20 +901,6 @@ export function App() {
       else if (cat === 'text') sp.text = await blobToText(blob);
       else if (cat === 'audio' || cat === 'video') sp.url = url;
       setStegoPreview(sp);
-
-      // Log entries
-      addLog(`File stego dibuat: ${defaultName} (${formatFileSize(blob.size)})`);
-      addLog(`Cover: ${coverFile.name}`);
-      if (renamedFiles.length > 0) {
-        addLog(`${renamedFiles.length} file rahasia disematkan`);
-        renamedFiles.forEach((f) => addLog(`  - ${f.name} (${formatFileSize(f.size)})`));
-      }
-      if (passwordCopy) {
-        addLog(`Enkripsi ditambahkan: ${methodToUse === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`);
-      } else {
-        addLog('Tanpa enkripsi password');
-      }
-      if (embedFaceDescriptor) addLog('Face Lock diaktifkan');
 
       // Clear password from memory after successful embed
       clearEmbedPassword();
@@ -1022,7 +1023,7 @@ export function App() {
     setDecrypting(true);
     const passwordCopy = decryptPassword;
     try {
-      const { files, faceDescriptor } = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod);
+      const { files, faceDescriptor, log: payloadLog } = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod);
 
       // Simpan stored face descriptor untuk referensi (sudah diverifikasi sebelumnya)
       if (faceDescriptor) setStoredFaceDescriptor(faceDescriptor);
@@ -1043,12 +1044,17 @@ export function App() {
 
       clearDecryptPassword();
 
-      // Log entries
-      addLog(`Dekripsi berhasil: ${stegoFile?.name ?? 'file stego'}`);
-      addLog(`${files.length} file berhasil diekstrak`);
-      files.forEach((f) => addLog(`  - ${f.name} (${formatFileSize(f.size)})`));
-      if (detectedMethod) addLog(`Metode enkripsi: ${detectedMethod === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`);
-      if (faceDescriptor) addLog('Face Lock: terverifikasi');
+      // Restore log from payload, then append new session entries
+      const now = new Date();
+      const ts = now.toLocaleString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const sessionEntries: string[] = [
+        `[${ts}] Dekripsi berhasil: ${stegoFile?.name ?? 'file stego'}`,
+        `[${ts}] ${files.length} file berhasil diekstrak`,
+        ...files.map((f) => `[${ts}]   - ${f.name} (${formatFileSize(f.size)})`),
+        ...(detectedMethod ? [`[${ts}] Metode enkripsi: ${detectedMethod === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`] : []),
+        ...(faceDescriptor ? [`[${ts}] Face Lock: terverifikasi`] : []),
+      ];
+      setActivityLog([...(payloadLog || []), ...sessionEntries]);
 
       showToast(`Berhasil mendekripsi ${files.length} file! Password telah dihapus dari memori.`, 'success');
 
@@ -1119,16 +1125,28 @@ export function App() {
     setUpdating(true);
     const passwordToUse = passwordChanged ? newPassword : originalDecryptPassword;
     const passwordCopy = passwordToUse; // Copy
+
+    // Append update entry to log before saving
+    const now = new Date();
+    const ts = now.toLocaleString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const updatedLog = [
+      ...activityLog,
+      `[${ts}] File diperbarui & disimpan ulang (${decryptedFiles.length} file dalam payload)`,
+      ...(passwordChanged ? [`[${ts}] Password diubah`] : []),
+    ];
+
     try {
       const newBlob = await reEmbedFiles(
         stegoBuffer, decryptedFiles,
         passwordCopy || undefined,
         passwordCopy ? decryptMethod : undefined,
-        storedFaceDescriptor ?? undefined
+        storedFaceDescriptor ?? undefined,
+        updatedLog
       );
 
       const newBuffer = await newBlob.arrayBuffer();
       setStegoBuffer(newBuffer);
+      setActivityLog(updatedLog);
       const url = URL.createObjectURL(newBlob);
       const ext = stegoFile?.name.split('.').pop() || 'bin';
       const a = document.createElement('a');
