@@ -606,15 +606,27 @@ function deserializeFilesRaw(
 // ──────────────────────────────────────────────
 
 /**
- * Face descriptor bytes: 128 Float32 = 512 bytes.
- * Stored AFTER the payload, BEFORE the 9-byte metadata trailer.
- * Layout (end of file):
- *   [ cover bytes ][ payload bytes ][ face? (512 B) ][ payloadSize (4B) ][ hasFace (1B) ][ methodFlag (1B) ][ MAGIC (4B) ]
- * hasFace flag: 0x00 = no face, 0x01 = face present
+ * File layout (dari belakang):
+ *
+ *   [ cover bytes ]
+ *   [ payload bytes (encrypted or plain) ]
+ *   [ face descriptor? (512 B, hanya jika hasFace) ]   ← FACE_BYTES
+ *   [ payloadSize (4 B) ]                               ─┐
+ *   [ hasFace flag (1 B): 0x00 | 0x01 ]                 │ Fixed tail = 10 B
+ *   [ methodFlag (1 B): 0x00|0x01|0x02 ]                │
+ *   [ MAGIC "STEG" (4 B) ]                             ─┘
+ *
+ * Offset dari ujung file (uint8.length):
+ *   -4..-1  : MAGIC
+ *   -5      : methodFlag
+ *   -6      : hasFace flag
+ *   -10..-7 : payloadSize (big-endian uint32)
+ *   -10-512..-11 : face descriptor (jika hasFace)
  */
-const FACE_BYTES = FACE_DESCRIPTOR_LENGTH * 4; // Float32 = 4 bytes each
-const TRAILER_SIZE_NO_FACE = 10; // 4 (size) + 1 (hasFace) + 1 (method) + 4 (magic)
-const TRAILER_SIZE_WITH_FACE = TRAILER_SIZE_NO_FACE + FACE_BYTES;
+const FACE_BYTES = FACE_DESCRIPTOR_LENGTH * 4;          // 512 bytes
+const FIXED_TAIL = 10;                                   // selalu 10 byte dari ujung
+const TRAILER_SIZE_NO_FACE   = FIXED_TAIL;               // 10
+const TRAILER_SIZE_WITH_FACE = FIXED_TAIL + FACE_BYTES;  // 522
 
 export async function embedFiles(
   coverFile: File,
@@ -703,16 +715,16 @@ export async function embedFiles(
     metaOffset += FACE_BYTES;
   }
 
-  // payloadSize (4 bytes)
+  // payloadSize (4 bytes) — di posisi -10 dari ujung file
   combined[metaOffset]     = (payloadSize >> 24) & 0xff;
   combined[metaOffset + 1] = (payloadSize >> 16) & 0xff;
   combined[metaOffset + 2] = (payloadSize >> 8)  & 0xff;
   combined[metaOffset + 3] =  payloadSize        & 0xff;
-  // hasFace flag (1 byte): 0x01 = has face, 0x00 = no face
+  // hasFace flag (1 byte) — di posisi -6
   combined[metaOffset + 4] = hasFace ? 0x01 : 0x00;
-  // methodFlag (1 byte)
+  // methodFlag (1 byte) — di posisi -5
   combined[metaOffset + 5] = methodFlag;
-  // MAGIC (4 bytes)
+  // MAGIC "STEG" (4 bytes) — di posisi -4..-1
   combined[metaOffset + 6] = MAGIC_BYTES[0];
   combined[metaOffset + 7] = MAGIC_BYTES[1];
   combined[metaOffset + 8] = MAGIC_BYTES[2];
@@ -733,6 +745,8 @@ export function checkForHiddenData(
     return { found: false, hasPassword: false, hasFace: false, method: null };
   }
 
+  // Fixed trailer tail (always 10 bytes from end regardless of face):
+  // [end-10: payloadSize(4)] [end-6: hasFace(1)] [end-5: method(1)] [end-4..end-1: MAGIC(4)]
   const magicOffset = uint8.length - 4;
   const hasMagic =
     uint8[magicOffset]     === MAGIC_BYTES[0] &&
@@ -744,15 +758,12 @@ export function checkForHiddenData(
     return { found: false, hasPassword: false, hasFace: false, method: null };
   }
 
-  // New trailer layout (10 bytes minimum):
-  // [payloadSize(4)][hasFaceFlag(1)][methodFlag(1)][MAGIC(4)]
   const methodFlag  = uint8[uint8.length - 5];
   const hasFaceFlag = uint8[uint8.length - 6];
   const hasFace     = hasFaceFlag === 0x01;
 
+  // payloadSize selalu di posisi yang sama (end-10), face bytes ada DI ANTARA payload dan metadata tail
   const sizeOffset = uint8.length - 10;
-  if (sizeOffset < 0) return { found: false, hasPassword: false, hasFace: false, method: null };
-
   const payloadSize =
     (uint8[sizeOffset]     << 24) |
     (uint8[sizeOffset + 1] << 16) |
@@ -796,6 +807,8 @@ export async function extractFiles(
     throw new Error('Tidak ditemukan data tersembunyi dalam file ini.');
   }
 
+  // Fixed tail (always 10 bytes from end):
+  // [end-10: payloadSize(4)] [end-6: hasFace(1)] [end-5: method(1)] [end-4..end-1: MAGIC(4)]
   const methodFlag  = uint8[uint8.length - 5];
   const hasFaceFlag = uint8[uint8.length - 6];
   const hasFace     = hasFaceFlag === 0x01;
@@ -807,19 +820,22 @@ export async function extractFiles(
     (uint8[sizeOffset + 2] <<  8) |
      uint8[sizeOffset + 3];
 
+  // trailerSize = 10 (fixed tail) + optional FACE_BYTES sebelum tail
   const trailerSize = hasFace ? TRAILER_SIZE_WITH_FACE : TRAILER_SIZE_NO_FACE;
   if (payloadSize <= 0 || payloadSize > uint8.length - trailerSize) {
     throw new Error('Data tersembunyi rusak atau ukuran tidak valid.');
   }
 
-  // Extract face descriptor if present (sits between payload and trailer metadata)
+  // Face bytes duduk SEBELUM fixed tail:
+  // [ cover ][ payload ][ face? 512B ][ payloadSize 4B ][ hasFace 1B ][ method 1B ][ MAGIC 4B ]
   let faceDescriptor: Float32Array | null = null;
   if (hasFace) {
-    const faceStart = uint8.length - trailerSize;
+    const faceStart = uint8.length - 10 - FACE_BYTES; // 10 = fixed tail size
     const faceBytes = uint8.slice(faceStart, faceStart + FACE_BYTES);
     faceDescriptor = deserializeFaceDescriptor(faceBytes);
   }
 
+  // Payload duduk sebelum face (atau sebelum fixed tail jika tidak ada face)
   const payloadStart = uint8.length - trailerSize - payloadSize;
   const payloadBytes = new Uint8Array(buffer.slice(payloadStart, payloadStart + payloadSize));
 
