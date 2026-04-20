@@ -15,7 +15,7 @@ import {
   readFileAsArrayBuffer, readFileAsDataURL, readFileAsText,
   blobToDataURL, blobToText, formatFileSize, getFileCategory,
   calculatePasswordStrength, secureWipeString,
-  isFaceMatch, faceDescriptorDistance, faceDescriptorToKeyMaterial,
+  isFaceMatch, faceDescriptorDistance,
   FACE_MATCH_THRESHOLD,
   type HiddenFile, type EncryptionMethod, type PasswordStrength,
 } from './utils/stego';
@@ -884,38 +884,16 @@ export function App() {
       setStegoHasFace(check.hasFace);
       setFaceVerified(false);
 
-      // Pre-extract face descriptor from stego file (tersimpan di trailer, bukan payload)
-      // Ini aman dilakukan tanpa password karena face descriptor ada di luar payload terenkripsi
+      // Pre-extract stored face descriptor langsung dari trailer buffer
+      // Layout: ... [payload][face 512B][payloadSize 4B][hasFace 1B][method 1B][MAGIC 4B]
+      // Face selalu di posisi: end - 10 - 512
       if (check.hasFace) {
-        try {
-          // Extract dengan password kosong — akan gagal di payload tapi face descriptor sudah terbaca
-          const { faceDescriptor } = await extractFiles(buffer, undefined, null).catch(() => ({ faceDescriptor: null, files: [] }));
-          // Jika no password stego atau bisa dibaca, ambil face descriptor-nya
-          // Untuk AES/XOR stego: face descriptor dibaca SEBELUM decrypt payload
-          // Kita extract langsung dari buffer trailer
-          if (faceDescriptor) {
-            setStoredFaceDescriptor(faceDescriptor);
-          } else {
-            // Extract face bytes langsung dari trailer buffer
-            const u8 = new Uint8Array(buffer);
-            const FACE_BYTES_LEN = 128 * 4;
-            const faceStart = u8.length - 10 - FACE_BYTES_LEN;
-            if (faceStart >= 0) {
-              const faceBytes = u8.slice(faceStart, faceStart + FACE_BYTES_LEN);
-              const copy = new Uint8Array(faceBytes).buffer;
-              setStoredFaceDescriptor(new Float32Array(copy));
-            }
-          }
-        } catch {
-          // fallback: extract face bytes langsung dari trailer
-          const u8 = new Uint8Array(buffer);
-          const FACE_BYTES_LEN = 128 * 4;
-          const faceStart = u8.length - 10 - FACE_BYTES_LEN;
-          if (faceStart >= 0) {
-            const faceBytes = u8.slice(faceStart, faceStart + FACE_BYTES_LEN);
-            const copy = new Uint8Array(faceBytes).buffer;
-            setStoredFaceDescriptor(new Float32Array(copy));
-          }
+        const u8 = new Uint8Array(buffer);
+        const FACE_BYTES_LEN = 128 * 4; // 512 bytes
+        const faceStart = u8.length - 10 - FACE_BYTES_LEN;
+        if (faceStart >= 0) {
+          const faceBytes = u8.slice(faceStart, faceStart + FACE_BYTES_LEN);
+          setStoredFaceDescriptor(new Float32Array(new Uint8Array(faceBytes).buffer));
         }
       }
       if (check.method) {
