@@ -1240,7 +1240,7 @@ export function App() {
     onChange: (m: EncryptionMethod) => void,
     disabled = false
   ) => (
-    <div className="grid grid-cols-2 gap-2.5">
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <button
         type="button"
         onClick={() => !disabled && onChange('xor')}
