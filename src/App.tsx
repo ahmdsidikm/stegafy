@@ -2515,7 +2515,7 @@ export function App() {
       {/* ====== FOOTER ====== */}
       <footer className="border-t border-slate-100 mt-auto bg-white">
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 text-center text-xs text-slate-400">
-          &copy; 2026 Steganografi Multi-Media.
+          &copy; 2026 Steganografi Multi-Media, By Ahmad Sidik.
         </div>
       </footer>
     </div>
