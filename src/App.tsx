@@ -1573,8 +1573,8 @@ export function App() {
         {activeTab === 'embed' && (
           <div className="animate-fadeUp">
             <div className="mb-6">
-              <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">Sembunyikan File</h2>
-              <p className="text-sm text-slate-500 mt-1">Sisipkan file rahasia ke dalam file cover media Anda.</p>
+              <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">Steganography File</h2>
+              <p className="text-sm text-slate-500 mt-1">Sisipkan file ke dalam file cover media Anda.</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
