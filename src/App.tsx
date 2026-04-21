@@ -1536,7 +1536,7 @@ export function App() {
             </div>
             <div>
               <h1 className="text-base font-bold text-slate-800 leading-tight">Stegafy</h1>
-              <p className="text-[11px] text-slate-400 leading-tight hidden sm:block">Sembunyikan File</p>
+              <p className="text-[11px] text-slate-400 leading-tight hidden sm:block">Steganography File</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
