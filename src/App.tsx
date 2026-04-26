@@ -19,6 +19,7 @@ import {
   isFaceMatch, faceDescriptorDistance, FACE_MATCH_THRESHOLD,
   type HiddenFile, type EncryptionMethod, type PasswordStrength,
 } from './utils/stego';
+import { PixelEncryptorView } from './PixelEncryptor';
 
 // App mode type for sidebar navigation
 type AppMode = 'stego' | 'pixel-encryptor';
@@ -521,14 +522,6 @@ function PasswordStrengthIndicator({ password }: { password: string }) {
     </div>
   );
 }
-
-// ──────────────────────────────────────────────
-// PixelEncryptorView — lazy wrapper
-// This renders the Image Pixel Encryptor tool.
-// The actual implementation is in PixelEncryptor.tsx
-// For this file, we render it via a dynamic import reference.
-// ──────────────────────────────────────────────
-import { PixelEncryptorView } from './PixelEncryptor';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<Tab>('embed');
