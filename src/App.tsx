@@ -533,6 +533,9 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [appMode, setAppMode] = useState<AppMode>('stego');
 
+  // Pixel Encryptor mode
+  const [pixelMode, setPixelMode] = useState<'encrypt' | 'decrypt'>('encrypt');
+
   // No-cover mode toggle (for embed tab)
   const [noCoverMode, setNoCoverMode] = useState(false);
 
@@ -1683,6 +1686,18 @@ export function App() {
                 </button>
               </div>
             )}
+            {appMode === 'pixel-encryptor' && (
+              <div className="flex bg-slate-100 rounded-xl p-1">
+                <button onClick={() => setPixelMode('encrypt')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${pixelMode === 'encrypt' ? 'bg-white text-cyan-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <Lock className="w-3.5 h-3.5" />
+                  Enkripsi
+                </button>
+                <button onClick={() => setPixelMode('decrypt')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${pixelMode === 'decrypt' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <Unlock className="w-3.5 h-3.5" />
+                  Dekripsi
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -1698,7 +1713,7 @@ export function App() {
               <p className="text-sm text-slate-500 mt-1">Enkripsi dan dekripsi gambar pada level piksel menggunakan password.</p>
             </div>
             {/* Lazy import placeholder — rendered by PixelEncryptor.tsx */}
-            <PixelEncryptorView />
+            <PixelEncryptorView mode={pixelMode} setMode={setPixelMode} />
           </div>
         )}
 
@@ -1708,49 +1723,46 @@ export function App() {
         {/* ============ EMBED TAB ============ */}
         {activeTab === 'embed' && (
           <div className="animate-fadeUp">
-            <div className="mb-6 flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">Steganography File</h2>
-                <p className="text-sm text-slate-500 mt-1">Sisipkan file ke dalam file cover media Anda.</p>
-              </div>
-              {/* No-cover mode toggle */}
-              <div className="flex items-center gap-2 shrink-0 mt-1">
-                <span className="text-xs font-semibold text-slate-500">Mode .enc</span>
-                <button
-                  type="button"
-                  onClick={() => { setNoCoverMode((v) => !v); setCoverFile(null); setCoverPreview(null); resetStegoResult(); }}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${noCoverMode ? 'bg-violet-500' : 'bg-slate-200'}`}
-                  title={noCoverMode ? 'Mode .enc aktif — tanpa file cover' : 'Aktifkan mode tanpa file cover (output .enc)'}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${noCoverMode ? 'translate-x-6' : 'translate-x-1'}`} />
-                </button>
-              </div>
+            <div className="mb-6">
+              <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">Steganography File</h2>
+              <p className="text-sm text-slate-500 mt-1">Sisipkan file ke dalam file cover media Anda.</p>
             </div>
-
-            {noCoverMode && (
-              <div className="mb-4 flex items-start gap-3 bg-violet-50 border border-violet-200 rounded-2xl px-4 py-3 animate-slideDown">
-                <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center shrink-0 mt-0.5">
-                  <Lock className="w-3.5 h-3.5 text-violet-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-violet-800">Mode Enkripsi Langsung (.enc)</p>
-                  <p className="text-xs text-violet-600 mt-0.5">File cover tidak diperlukan. Hasil enkripsi akan disimpan sebagai file <code className="bg-violet-100 px-1 rounded font-mono">.enc</code> yang hanya bisa dibuka dengan aplikasi ini.</p>
-                </div>
-              </div>
-            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
               <div className="lg:col-span-2 space-y-5">
 
-                {/* Step 1: Cover (hidden in no-cover mode) */}
-                {!noCoverMode && (
+                {/* Step 1: Cover */}
                 <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
-                  <div className="flex items-center gap-2.5 mb-4">
-                    <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">1</div>
-                    <h3 className="text-sm font-bold text-slate-700">File Cover</h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">1</div>
+                      <h3 className="text-sm font-bold text-slate-700">File Cover</h3>
+                    </div>
+                    {/* Mode .enc toggle */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-400">Mode .enc</span>
+                      <button
+                        type="button"
+                        onClick={() => { setNoCoverMode((v) => !v); setCoverFile(null); setCoverPreview(null); resetStegoResult(); }}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${noCoverMode ? 'bg-violet-500' : 'bg-slate-200'}`}
+                        title={noCoverMode ? 'Mode .enc aktif — tanpa file cover' : 'Aktifkan mode tanpa file cover (output .enc)'}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${noCoverMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                      </button>
+                    </div>
                   </div>
                   <input ref={coverInputRef} type="file" className="hidden" onChange={handleCoverSelect} />
-                  {!coverFile ? (
+                  {noCoverMode ? (
+                    <div className="flex items-start gap-3 bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
+                      <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center shrink-0 mt-0.5">
+                        <Lock className="w-3.5 h-3.5 text-violet-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-violet-800">Mode Enkripsi Langsung (.enc)</p>
+                        <p className="text-xs text-violet-600 mt-0.5">File cover tidak diperlukan. Hasil enkripsi akan disimpan sebagai file <code className="bg-violet-100 px-1 rounded font-mono">.enc</code> yang hanya bisa dibuka dengan aplikasi ini.</p>
+                      </div>
+                    </div>
+                  ) : !coverFile ? (
                     <button onClick={() => coverInputRef.current?.click()} className="w-full border-2 border-dashed border-slate-200 rounded-xl py-10 flex flex-col items-center gap-3 hover:border-orange-300 hover:bg-orange-50/30 transition-all group cursor-pointer">
                       <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center group-hover:bg-orange-100 transition-colors">
                         <Upload className="w-6 h-6 text-slate-400 group-hover:text-orange-500 transition-colors" />
@@ -1778,7 +1790,6 @@ export function App() {
                     </div>
                   )}
                 </section>
-                )}
                 <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2.5">
