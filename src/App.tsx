@@ -9,15 +9,19 @@ import {
   EyeOff, LockKeyhole, MessageSquare, MessageSquarePlus,
   Maximize2, Edit3, Check, KeyRound, Search,
   LayoutGrid, Zap, ShieldCheck, ScanFace, Camera, CameraOff,
+  Menu, ChevronLeft, Layers, Cpu,
 } from 'lucide-react';
 import {
-  embedFiles, extractFiles, checkForHiddenData, reEmbedFiles,
+  embedFiles, embedFilesNoCover, extractFiles, checkForHiddenData, reEmbedFiles,
   readFileAsArrayBuffer, readFileAsDataURL, readFileAsText,
   blobToDataURL, blobToText, formatFileSize, getFileCategory,
   calculatePasswordStrength, secureWipeString,
   isFaceMatch, faceDescriptorDistance, FACE_MATCH_THRESHOLD,
   type HiddenFile, type EncryptionMethod, type PasswordStrength,
 } from './utils/stego';
+
+// App mode type for sidebar navigation
+type AppMode = 'stego' | 'pixel-encryptor';
 
 type Tab = 'embed' | 'decrypt';
 type FilterCategory = 'all' | 'image' | 'video' | 'audio' | 'text' | 'other';
@@ -518,11 +522,26 @@ function PasswordStrengthIndicator({ password }: { password: string }) {
   );
 }
 
+// ──────────────────────────────────────────────
+// PixelEncryptorView — lazy wrapper
+// This renders the Image Pixel Encryptor tool.
+// The actual implementation is in PixelEncryptor.tsx
+// For this file, we render it via a dynamic import reference.
+// ──────────────────────────────────────────────
+import { PixelEncryptorView } from './PixelEncryptor';
+
 export function App() {
   const [activeTab, setActiveTab] = useState<Tab>('embed');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog>({ open: false, fileId: '', fileName: '' });
   const [lightbox, setLightbox] = useState<ImageLightbox>({ open: false, src: '', alt: '' });
+
+  // Sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [appMode, setAppMode] = useState<AppMode>('stego');
+
+  // No-cover mode toggle (for embed tab)
+  const [noCoverMode, setNoCoverMode] = useState(false);
 
   // Embed state
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -904,7 +923,7 @@ export function App() {
   }, [showToast]);
 
   const handleEmbed = async () => {
-    if (!coverFile) return showToast('Pilih file cover terlebih dahulu!', 'error');
+    if (!noCoverMode && !coverFile) return showToast('Pilih file cover terlebih dahulu!', 'error');
     if (secretFiles.length === 0) return showToast('Tambahkan minimal satu file rahasia!', 'error');
 
     setEmbedding(true);
@@ -923,7 +942,9 @@ export function App() {
       // Build creation log to embed in payload — each entry gets its own fresh timestamp
       const creationLog: string[] = [
         `[${makeTs()}] File stego dibuat`,
-        `[${makeTs()}] Cover: ${coverFile.name}`,
+        noCoverMode
+          ? `[${makeTs()}] Mode: Tanpa file cover (.enc)`
+          : `[${makeTs()}] Cover: ${coverFile!.name}`,
         `[${makeTs()}] ${renamedFiles.length} file rahasia disematkan`,
         ...renamedFiles.map((f) => `[${makeTs()}]   - ${f.name} (${formatFileSize(f.size)})`),
         ...(passwordCopy
@@ -932,29 +953,43 @@ export function App() {
         ...(embedFaceDescriptor ? [`[${makeTs()}] Face Lock diaktifkan`] : []),
       ];
 
-      const { blob, extension } = await embedFiles(
-        coverFile, renamedFiles, passwordCopy || undefined,
-        embedComments, methodToUse,
-        embedFaceDescriptor ?? undefined,
-        creationLog
-      );
+      let blob: Blob;
+      let extension: string;
+
+      if (noCoverMode) {
+        ({ blob, extension } = await embedFilesNoCover(
+          renamedFiles, passwordCopy || undefined,
+          embedComments, methodToUse,
+          embedFaceDescriptor ?? undefined,
+          creationLog
+        ));
+      } else {
+        ({ blob, extension } = await embedFiles(
+          coverFile!, renamedFiles, passwordCopy || undefined,
+          embedComments, methodToUse,
+          embedFaceDescriptor ?? undefined,
+          creationLog
+        ));
+      }
 
       const url = URL.createObjectURL(blob);
       setStegoResult({ url, extension });
-      const defaultName = `stego_file.${extension}`;
+      const defaultName = noCoverMode ? `encrypted_files.enc` : `stego_file.${extension}`;
       setStegoOutputName(defaultName);
       setEditingStegoName(false);
 
-      const sp: FilePreview = { name: defaultName, size: blob.size, type: coverFile.type };
-      const cat = getFileCategory(coverFile.type, coverFile.name);
-      if (cat === 'image') sp.url = await blobToDataURL(blob);
-      else if (cat === 'text') sp.text = await blobToText(blob);
-      else if (cat === 'audio' || cat === 'video') sp.url = url;
+      const sp: FilePreview = { name: defaultName, size: blob.size, type: noCoverMode ? 'application/octet-stream' : coverFile!.type };
+      if (!noCoverMode) {
+        const cat = getFileCategory(coverFile!.type, coverFile!.name);
+        if (cat === 'image') sp.url = await blobToDataURL(blob);
+        else if (cat === 'text') sp.text = await blobToText(blob);
+        else if (cat === 'audio' || cat === 'video') sp.url = url;
+      }
       setStegoPreview(sp);
 
       // Clear password from memory after successful embed
       clearEmbedPassword();
-      showToast('File berhasil disembunyikan! Password telah dihapus dari memori.', 'success');
+      showToast(noCoverMode ? 'File berhasil dienkripsi ke .enc!' : 'File berhasil disembunyikan! Password telah dihapus dari memori.', 'success');
     } catch (err) {
       showToast(`Error: ${(err as Error).message}`, 'error');
     } finally {
@@ -1412,7 +1447,96 @@ export function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* ====== SIDEBAR ====== */}
+      {/* Overlay for mobile */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar panel */}
+      <aside
+        className={`fixed top-0 left-0 z-50 h-full w-64 bg-white border-r border-slate-200 shadow-2xl flex flex-col transition-transform duration-300 ease-in-out ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        {/* Sidebar header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center">
+              <Shield className="w-4 h-4 text-white" />
+            </div>
+            <span className="text-sm font-bold text-slate-800">SecureTools</span>
+          </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Sidebar menu */}
+        <nav className="flex-1 p-3 space-y-1">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 py-2">Menu</p>
+
+          <button
+            onClick={() => { setAppMode('stego'); setSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-all cursor-pointer ${
+              appMode === 'stego'
+                ? 'bg-violet-50 text-violet-700 border border-violet-100'
+                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+            }`}
+          >
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              appMode === 'stego' ? 'bg-violet-100' : 'bg-slate-100'
+            }`}>
+              <Layers className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate">Stenografi</p>
+              <p className="text-[10px] text-slate-400 truncate">Sembunyikan file di media</p>
+            </div>
+            {appMode === 'stego' && (
+              <div className="ml-auto w-1.5 h-1.5 rounded-full bg-violet-500 shrink-0" />
+            )}
+          </button>
+
+          <button
+            onClick={() => { setAppMode('pixel-encryptor'); setSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-all cursor-pointer ${
+              appMode === 'pixel-encryptor'
+                ? 'bg-cyan-50 text-cyan-700 border border-cyan-100'
+                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+            }`}
+          >
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              appMode === 'pixel-encryptor' ? 'bg-cyan-100' : 'bg-slate-100'
+            }`}>
+              <Cpu className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate">Pixel Encryptor</p>
+              <p className="text-[10px] text-slate-400 truncate">Enkripsi visual gambar</p>
+            </div>
+            {appMode === 'pixel-encryptor' && (
+              <div className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan-500 shrink-0" />
+            )}
+          </button>
+        </nav>
+
+        {/* Sidebar footer */}
+        <div className="p-4 border-t border-slate-100">
+          <p className="text-[11px] text-slate-400 text-center">&copy; 2026 Steganografi Multi-Media</p>
+          <p className="text-[10px] text-slate-300 text-center">By Ahmad Sidik</p>
+        </div>
+      </aside>
+
+      {/* ====== MAIN CONTENT AREA ====== */}
+      <div className="flex-1 flex flex-col min-h-screen">
       {/* ====== FACE SCANNER MODAL ====== */}
       {showFaceScanner && (
         <FaceScanner
@@ -1531,27 +1655,41 @@ export function App() {
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-slate-200">
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
+            {/* Hamburger menu */}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-all cursor-pointer"
+              title="Buka menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shadow-md shadow-orange-200">
               <Shield className="w-4.5 h-4.5 text-white" />
             </div>
             <div>
-              <h1 className="text-base font-bold text-slate-800 leading-tight">Stegafy</h1>
-              <p className="text-[11px] text-slate-400 leading-tight hidden sm:block">Steganography File</p>
+              <h1 className="text-base font-bold text-slate-800 leading-tight">
+                {appMode === 'stego' ? 'Stegafy' : 'Pixel Encryptor'}
+              </h1>
+              <p className="text-[11px] text-slate-400 leading-tight hidden sm:block">
+                {appMode === 'stego' ? 'Steganography File' : 'Enkripsi Visual Gambar'}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex bg-slate-100 rounded-xl p-1">
-              <button onClick={() => setActiveTab('embed')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'embed' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                <LockKeyhole className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Sembunyikan</span>
-                <span className="sm:hidden">Embed</span>
-              </button>
-              <button onClick={() => setActiveTab('decrypt')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'decrypt' ? 'bg-white text-violet-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                <Unlock className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Dekripsi</span>
-                <span className="sm:hidden">Decrypt</span>
-              </button>
-            </div>
+            {appMode === 'stego' && (
+              <div className="flex bg-slate-100 rounded-xl p-1">
+                <button onClick={() => setActiveTab('embed')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'embed' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <LockKeyhole className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Sembunyikan</span>
+                  <span className="sm:hidden">Embed</span>
+                </button>
+                <button onClick={() => setActiveTab('decrypt')} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'decrypt' ? 'bg-white text-violet-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Dekripsi</span>
+                  <span className="sm:hidden">Decrypt</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -1559,18 +1697,60 @@ export function App() {
       {/* ====== MAIN ====== */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
+        {/* ============ PIXEL ENCRYPTOR MODE ============ */}
+        {appMode === 'pixel-encryptor' && (
+          <div className="animate-fadeUp">
+            <div className="mb-6">
+              <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">Image Pixel Encryptor</h2>
+              <p className="text-sm text-slate-500 mt-1">Enkripsi dan dekripsi gambar pada level piksel menggunakan password.</p>
+            </div>
+            {/* Lazy import placeholder — rendered by PixelEncryptor.tsx */}
+            <PixelEncryptorView />
+          </div>
+        )}
+
+        {/* ============ STEGO MODE ============ */}
+        {appMode === 'stego' && (
+        <>
         {/* ============ EMBED TAB ============ */}
         {activeTab === 'embed' && (
           <div className="animate-fadeUp">
-            <div className="mb-6">
-              <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">Steganography File</h2>
-              <p className="text-sm text-slate-500 mt-1">Sisipkan file ke dalam file cover media Anda.</p>
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">Steganography File</h2>
+                <p className="text-sm text-slate-500 mt-1">Sisipkan file ke dalam file cover media Anda.</p>
+              </div>
+              {/* No-cover mode toggle */}
+              <div className="flex items-center gap-2 shrink-0 mt-1">
+                <span className="text-xs font-semibold text-slate-500">Mode .enc</span>
+                <button
+                  type="button"
+                  onClick={() => { setNoCoverMode((v) => !v); setCoverFile(null); setCoverPreview(null); resetStegoResult(); }}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${noCoverMode ? 'bg-violet-500' : 'bg-slate-200'}`}
+                  title={noCoverMode ? 'Mode .enc aktif — tanpa file cover' : 'Aktifkan mode tanpa file cover (output .enc)'}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${noCoverMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
             </div>
+
+            {noCoverMode && (
+              <div className="mb-4 flex items-start gap-3 bg-violet-50 border border-violet-200 rounded-2xl px-4 py-3 animate-slideDown">
+                <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center shrink-0 mt-0.5">
+                  <Lock className="w-3.5 h-3.5 text-violet-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-violet-800">Mode Enkripsi Langsung (.enc)</p>
+                  <p className="text-xs text-violet-600 mt-0.5">File cover tidak diperlukan. Hasil enkripsi akan disimpan sebagai file <code className="bg-violet-100 px-1 rounded font-mono">.enc</code> yang hanya bisa dibuka dengan aplikasi ini.</p>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
               <div className="lg:col-span-2 space-y-5">
 
-                {/* Step 1: Cover */}
+                {/* Step 1: Cover (hidden in no-cover mode) */}
+                {!noCoverMode && (
                 <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
                   <div className="flex items-center gap-2.5 mb-4">
                     <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">1</div>
@@ -1605,12 +1785,11 @@ export function App() {
                     </div>
                   )}
                 </section>
-
-                {/* Step 2: Secret Files */}
+                )}
                 <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">2</div>
+                      <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">{noCoverMode ? '1' : '2'}</div>
                       <h3 className="text-sm font-bold text-slate-700">
                         File Rahasia
                         {secretFiles.length > 0 && <span className="text-slate-400 font-normal ml-1">({secretFiles.length})</span>}
@@ -1691,7 +1870,7 @@ export function App() {
                 <section className="bg-white rounded-2xl border border-slate-200 p-5 card-hover">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">3</div>
+                      <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">{noCoverMode ? '2' : '3'}</div>
                       <h3 className="text-sm font-bold text-slate-700">Metode Enkripsi</h3>
                     </div>
                     {embedMethod && (
@@ -1714,7 +1893,7 @@ export function App() {
                   {/* Header with slider toggle */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">4</div>
+                      <div className="w-7 h-7 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-xs font-bold">{noCoverMode ? '3' : '4'}</div>
                       <h3 className="text-sm font-bold text-slate-700">Password & Keamanan</h3>
                       <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wide">Opsional</span>
                     </div>
@@ -1893,7 +2072,7 @@ export function App() {
                 {/* Embed Button */}
                 <button
                   onClick={handleEmbed}
-                  disabled={embedding || !coverFile || secretFiles.length === 0}
+                  disabled={embedding || (!noCoverMode && !coverFile) || secretFiles.length === 0}
                   className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3.5 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-orange-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
                 >
                   {embedding ? (
@@ -1901,10 +2080,10 @@ export function App() {
                       <Loader2 className="w-4 h-4 animate-spin" />
                       {(embedPassword || generatedKey) && embedMethod === 'aes'
                         ? 'Mengenkripsi dengan AES-256 + Argon2...'
-                        : 'Menyembunyikan...'}
+                        : noCoverMode ? 'Mengenkripsi...' : 'Menyembunyikan...'}
                     </>
                   ) : (
-                    <><LockKeyhole className="w-4 h-4" />Sembunyikan File</>
+                    <><LockKeyhole className="w-4 h-4" />{noCoverMode ? 'Enkripsi ke .enc' : 'Sembunyikan File'}</>
                   )}
                 </button>
               </div>
@@ -2500,6 +2679,8 @@ export function App() {
             </div>
           </div>
         )}
+        </>
+        )}
       </main>
 
       {/* ====== FOOTER ====== */}
@@ -2518,6 +2699,7 @@ export function App() {
           <p className="text-xs text-slate-400">&copy; 2026 Steganografi Multi-Media, By Ahmad Sidik.</p>
         </div>
       </footer>
-    </div>
+    </div>{/* end inner flex-1 div */}
+    </div>{/* end outer flex div */}
   );
 }
