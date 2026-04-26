@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import {
   Upload, X, Download, Lock, Unlock, Eye, EyeOff,
   AlertCircle, CheckCircle, Loader2, Info, RefreshCw,
-  Image as ImageIcon, ShieldCheck, Zap,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 // ──────────────────────────────────────────────
@@ -93,8 +93,12 @@ function readImageFile(file: File): Promise<HTMLImageElement> {
 // Main exported component
 // ──────────────────────────────────────────────
 
-export function PixelEncryptorView() {
-  const [mode, setMode] = useState<PixelMode>('encrypt');
+interface PixelEncryptorProps {
+  mode: PixelMode;
+  setMode: (m: PixelMode) => void;
+}
+
+export function PixelEncryptorView({ mode, setMode }: PixelEncryptorProps) {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const [resultSrc, setResultSrc] = useState<string | null>(null);
@@ -217,46 +221,19 @@ export function PixelEncryptorView() {
         ))}
       </div>
 
-      {/* Mode Selector */}
-      <div className="mb-6 flex gap-3 items-center">
-        <div className="flex bg-slate-100 rounded-xl p-1">
-          <button
-            onClick={() => { setMode('encrypt'); setResultSrc(null); }}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              mode === 'encrypt' ? 'bg-white text-cyan-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Lock className="w-3.5 h-3.5" />
-            Enkripsi
-          </button>
-          <button
-            onClick={() => { setMode('decrypt'); setResultSrc(null); }}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              mode === 'decrypt' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Unlock className="w-3.5 h-3.5" />
-            Dekripsi
-          </button>
-        </div>
+      {/* Mode toggle now lives in the App header — nothing needed here */}
 
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold ${
-          mode === 'encrypt' ? 'bg-cyan-50 text-cyan-700 border border-cyan-100' : 'bg-teal-50 text-teal-700 border border-teal-100'
-        }`}>
-          {mode === 'encrypt' ? <ShieldCheck className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
-          {mode === 'encrypt' ? 'Mode Enkripsi Piksel' : 'Mode Dekripsi Piksel'}
-        </div>
-
-        {(imageFile || resultSrc) && (
+      {(imageFile || resultSrc) && (
+        <div className="mb-4 flex justify-end">
           <button
             onClick={handleReset}
-            className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Reset
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Left: Input */}
