@@ -311,13 +311,37 @@ export function PixelEncryptorView({ mode, setMode }: PixelEncryptorProps) {
             )}
           </section>
 
-          {/* Password */}
+          {/* Password + Process */}
           <section className="bg-white rounded-2xl border border-slate-200 p-5">
-            <div className="flex items-center gap-2.5 mb-4">
-              <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
-                mode === 'encrypt' ? 'bg-cyan-50 text-cyan-600' : 'bg-teal-50 text-teal-600'
-              }`}>2</div>
-              <h3 className="text-sm font-bold text-slate-700">Password Enkripsi</h3>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
+                  mode === 'encrypt' ? 'bg-cyan-50 text-cyan-600' : 'bg-teal-50 text-teal-600'
+                }`}>2</div>
+                <h3 className="text-sm font-bold text-slate-700">Password Enkripsi</h3>
+              </div>
+              {/* Process button — kanan atas section, seperti App.tsx */}
+              <button
+                onClick={handleProcess}
+                disabled={processing || !imageFile || !password.trim()}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white transition-all shadow-md active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                  mode === 'encrypt'
+                    ? 'bg-gradient-to-r from-cyan-500 to-sky-500 shadow-cyan-200 hover:brightness-105'
+                    : 'bg-gradient-to-r from-teal-500 to-emerald-500 shadow-teal-200 hover:brightness-105'
+                }`}
+              >
+                {processing ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    {mode === 'encrypt' ? 'Mengenkripsi...' : 'Mendekripsi...'}
+                  </>
+                ) : (
+                  <>
+                    {mode === 'encrypt' ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                    {mode === 'encrypt' ? 'Enkripsi Gambar' : 'Dekripsi Gambar'}
+                  </>
+                )}
+              </button>
             </div>
 
             <div className="relative">
@@ -349,29 +373,6 @@ export function PixelEncryptorView({ mode, setMode }: PixelEncryptorProps) {
                 : 'Gunakan password yang sama dengan saat enkripsi.'}
             </p>
           </section>
-
-          {/* Process button */}
-          <button
-            onClick={handleProcess}
-            disabled={processing || !imageFile || !password.trim()}
-            className={`w-full py-3.5 rounded-xl font-bold text-sm text-white transition-all shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
-              mode === 'encrypt'
-                ? 'bg-gradient-to-r from-cyan-500 to-sky-500 shadow-cyan-200 hover:brightness-105'
-                : 'bg-gradient-to-r from-teal-500 to-emerald-500 shadow-teal-200 hover:brightness-105'
-            }`}
-          >
-            {processing ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {mode === 'encrypt' ? 'Mengenkripsi piksel...' : 'Mendekripsi piksel...'}
-              </>
-            ) : (
-              <>
-                {mode === 'encrypt' ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                {mode === 'encrypt' ? 'Enkripsi Gambar' : 'Dekripsi Gambar'}
-              </>
-            )}
-          </button>
         </div>
 
         {/* Right: Result */}
@@ -463,7 +464,7 @@ export function PixelEncryptorView({ mode, setMode }: PixelEncryptorProps) {
                 <div className={`rounded-xl p-3 flex items-start gap-3 ${
                   mode === 'encrypt' ? 'bg-cyan-50' : 'bg-teal-50'
                 }`}>
-                  <Zap className={`w-4 h-4 mt-0.5 shrink-0 ${mode === 'encrypt' ? 'text-cyan-500' : 'text-teal-500'}`} />
+                  <Lock className={`w-4 h-4 mt-0.5 shrink-0 ${mode === 'encrypt' ? 'text-cyan-500' : 'text-teal-500'}`} />
                   <div>
                     <p className={`text-xs font-bold ${mode === 'encrypt' ? 'text-cyan-700' : 'text-teal-700'}`}>
                       Enkripsi Berbasis Piksel
@@ -474,7 +475,7 @@ export function PixelEncryptorView({ mode, setMode }: PixelEncryptorProps) {
                   </div>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3 flex items-start gap-3">
-                  <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0 text-slate-400" />
+                  <CheckCircle className="w-4 h-4 mt-0.5 shrink-0 text-slate-400" />
                   <div>
                     <p className="text-xs font-bold text-slate-600">Simetris</p>
                     <p className="text-[11px] text-slate-400 mt-0.5">
