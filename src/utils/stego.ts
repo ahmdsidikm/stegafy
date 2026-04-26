@@ -690,6 +690,90 @@ export async function embedFiles(
   return { blob, extension: ext };
 }
 
+/**
+ * Embed files WITHOUT a cover file. Output is a raw `.enc` binary container.
+ * The container is: [ payload bytes ][ trailer metadata ]
+ * This uses the same trailer format as steganography for compatibility.
+ */
+export async function embedFilesNoCover(
+  secretFiles: File[],
+  password?: string,
+  comments?: Record<number, string>,
+  method?: EncryptionMethod,
+  faceDescriptor?: Float32Array,
+  log?: string[]
+): Promise<{ blob: Blob; extension: string }> {
+  let payloadBytes: Uint8Array;
+  let methodFlag: number;
+
+  if (password && method === 'xor') {
+    const filesForRaw: Array<{ name: string; type: string; data: ArrayBuffer; comment?: string }> = [];
+    for (let i = 0; i < secretFiles.length; i++) {
+      const file = secretFiles[i];
+      const buffer = await readFileAsArrayBuffer(file);
+      filesForRaw.push({ name: file.name, type: file.type, data: buffer, comment: comments?.[i] || undefined });
+    }
+    if (log && log.length > 0) {
+      const logJson = JSON.stringify(log);
+      const logBytes = new TextEncoder().encode(logJson);
+      filesForRaw.push({ name: '__log__', type: 'application/json', data: logBytes.buffer as ArrayBuffer, comment: '' });
+    }
+    const rawBytes = serializeFilesRaw(filesForRaw);
+    payloadBytes = xorEncrypt(rawBytes, password);
+    methodFlag = 0x01;
+  } else if (password && method === 'aes') {
+    const filesData = [];
+    for (let i = 0; i < secretFiles.length; i++) {
+      const file = secretFiles[i];
+      const buffer = await readFileAsArrayBuffer(file);
+      filesData.push({ name: file.name, type: file.type, size: file.size, dataBase64: arrayBufferToBase64(buffer), comment: comments?.[i] || undefined });
+    }
+    const payloadJson = JSON.stringify({ files: filesData, log: log || [] });
+    const plainBytes = new TextEncoder().encode(payloadJson);
+    payloadBytes = await aesEncrypt(plainBytes, password);
+    methodFlag = 0x02;
+  } else {
+    const filesData = [];
+    for (let i = 0; i < secretFiles.length; i++) {
+      const file = secretFiles[i];
+      const buffer = await readFileAsArrayBuffer(file);
+      filesData.push({ name: file.name, type: file.type, size: file.size, dataBase64: arrayBufferToBase64(buffer), comment: comments?.[i] || undefined });
+    }
+    const payloadJson = JSON.stringify({ files: filesData, log: log || [] });
+    payloadBytes = new TextEncoder().encode(payloadJson);
+    methodFlag = 0x00;
+  }
+
+  const payloadSize = payloadBytes.length;
+  const hasFace = !!(faceDescriptor && faceDescriptor.length === FACE_DESCRIPTOR_LENGTH);
+  const trailerSize = hasFace ? TRAILER_SIZE_WITH_FACE : TRAILER_SIZE_NO_FACE;
+  const totalSize = payloadSize + trailerSize;
+  const combined = new Uint8Array(totalSize);
+
+  combined.set(payloadBytes, 0);
+  let metaOffset = payloadSize;
+
+  if (hasFace && faceDescriptor) {
+    const faceBytes = serializeFaceDescriptor(faceDescriptor);
+    combined.set(faceBytes, metaOffset);
+    metaOffset += FACE_BYTES;
+  }
+
+  combined[metaOffset]     = (payloadSize >> 24) & 0xff;
+  combined[metaOffset + 1] = (payloadSize >> 16) & 0xff;
+  combined[metaOffset + 2] = (payloadSize >> 8)  & 0xff;
+  combined[metaOffset + 3] =  payloadSize        & 0xff;
+  combined[metaOffset + 4] = hasFace ? 0x01 : 0x00;
+  combined[metaOffset + 5] = methodFlag;
+  combined[metaOffset + 6] = MAGIC_BYTES[0];
+  combined[metaOffset + 7] = MAGIC_BYTES[1];
+  combined[metaOffset + 8] = MAGIC_BYTES[2];
+  combined[metaOffset + 9] = MAGIC_BYTES[3];
+
+  const blob = new Blob([combined], { type: 'application/octet-stream' });
+  return { blob, extension: 'enc' };
+}
+
 export function checkForHiddenData(
   buffer: ArrayBuffer
 ): { found: boolean; hasPassword: boolean; hasFace: boolean; method: EncryptionMethod | null } {
