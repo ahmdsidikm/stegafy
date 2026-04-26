@@ -2692,7 +2692,7 @@ export function App() {
           <p className="text-xs text-slate-400">&copy; 2026 Steganografi Multi-Media, By Ahmad Sidik.</p>
         </div>
       </footer>
-    </div>{/* end inner flex-1 div */}
-    </div>{/* end outer flex div */}
+    </div>
+    </div>
   );
 }
