@@ -1457,8 +1457,7 @@ export function App() {
 
   const handlePartitionDecrypt = async () => {
     if (!stegoBuffer) return;
-    if (!selectedPartitionLabel) return showToast('Pilih partisi terlebih dahulu!', 'error');
-    if (!partitionDecryptPassword.trim()) return showToast('Masukkan password partisi!', 'error');
+    if (!partitionDecryptPassword.trim()) return showToast('Masukkan password!', 'error');
 
     setDecrypting(true);
     try {
@@ -1469,20 +1468,37 @@ export function App() {
       }
       const jsonText = new TextDecoder().decode(innerFiles[0].data);
       const bundle = JSON.parse(jsonText);
-      const partitionEntry = bundle.partitions.find((p: { label: string }) => p.label === selectedPartitionLabel);
-      if (!partitionEntry) throw new Error('Partisi tidak ditemukan');
 
-      // Step 2: Decode base64 partition blob safely (avoids stack overflow)
-      const binaryStr = atob(partitionEntry.data);
-      const partBytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) partBytes[i] = binaryStr.charCodeAt(i);
-      const partBuffer = partBytes.buffer;
+      // Step 2: Try password against ALL partitions, take the first match
+      let matchedLabel = '';
+      let matchedFiles: typeof innerFiles = [];
 
-      // Step 3: Decrypt partition with its password
-      const { files: partFiles } = await extractFiles(partBuffer, partitionDecryptPassword.trim(), 'aes');
+      for (const partitionEntry of bundle.partitions) {
+        try {
+          const binaryStr = atob(partitionEntry.data);
+          const partBytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) partBytes[i] = binaryStr.charCodeAt(i);
+          const partBuffer = partBytes.buffer;
 
-      // Step 4: Decompress files
-      const decompressedFiles = await Promise.all(partFiles.map(async (file) => {
+          const { files: partFiles } = await extractFiles(partBuffer, partitionDecryptPassword.trim(), 'aes');
+          // If no error thrown, password matched this partition
+          matchedLabel = partitionEntry.label;
+          matchedFiles = partFiles;
+          break;
+        } catch {
+          // Wrong password for this partition, try next
+          continue;
+        }
+      }
+
+      if (!matchedLabel) {
+        showToast('Password salah — tidak cocok dengan partisi manapun.', 'error');
+        setDecrypting(false);
+        return;
+      }
+
+      // Step 3: Decompress matched files
+      const decompressedFiles = await Promise.all(matchedFiles.map(async (file) => {
         const { isCompressed, payload } = stripCompressHeader(file.data);
         if (isCompressed) {
           const decompressed = await decompressData(payload);
@@ -1491,8 +1507,8 @@ export function App() {
         return file;
       }));
 
+      // Step 4: Merge into existing decrypted files (avoid exact duplicates)
       setDecryptedFiles((prev) => {
-        // Merge — avoid duplicates by name+size
         const existing = new Set(prev.map((f) => f.name + f.size));
         const newOnes = decompressedFiles.filter((f) => !existing.has(f.name + f.size));
         return [...prev, ...newOnes];
@@ -1510,15 +1526,10 @@ export function App() {
       setFilePreviews((prev) => ({ ...prev, ...previews }));
       setDecryptionDone(true);
       setPartitionDecryptPassword('');
-      addLog(`Partisi "${selectedPartitionLabel}" berhasil didekripsi: ${decompressedFiles.length} file`);
-      showToast(`Partisi "${selectedPartitionLabel}" berhasil dibuka! ${decompressedFiles.length} file diekstrak.`, 'success');
+      addLog(`Partisi "${matchedLabel}" berhasil didekripsi: ${decompressedFiles.length} file`);
+      showToast(`✓ ${matchedLabel} terbuka — ${decompressedFiles.length} file diekstrak.`, 'success');
     } catch (err) {
-      const msg = (err as Error).message;
-      if (msg.includes('decrypt') || msg.includes('password') || msg.toLowerCase().includes('invalid')) {
-        showToast(`Password salah untuk partisi "${selectedPartitionLabel}"!`, 'error');
-      } else {
-        showToast(`Error: ${msg}`, 'error');
-      }
+      showToast(`Error: ${(err as Error).message}`, 'error');
     } finally {
       setDecrypting(false);
     }
@@ -2305,58 +2316,56 @@ export function App() {
 
                       {/* Key type toggle - hanya untuk Mode Pro / AES */}
                       {embedMethod === 'aes' && (
-                        <div>
-                          <label className="text-xs font-semibold text-slate-500 mb-2 block">Jenis Kunci Enkripsi</label>
+                        <div className={usePartitions ? 'opacity-40 pointer-events-none select-none' : ''}>
+                          <label className="text-xs font-semibold text-slate-500 mb-2 block">
+                            Jenis Kunci Enkripsi
+                            {usePartitions && <span className="ml-2 text-[10px] text-slate-400 normal-case">(diatur per partisi)</span>}
+                          </label>
                           <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => { setEmbedKeyType('password'); if (generatedKey) { setEmbedPassword(''); setGeneratedKey(''); setGeneratedKeyUrl(''); } }}
-                              className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
-                                ${embedKeyType === 'password' ? 'border-orange-400 bg-orange-50/60' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
-                            >
+                            <div className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left
+                              ${embedKeyType === 'password' ? 'border-orange-400 bg-orange-50/60' : 'border-slate-200 bg-white'}`}>
                               {embedKeyType === 'password' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-orange-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
                               <Lock className={`w-4 h-4 shrink-0 ${embedKeyType === 'password' ? 'text-orange-500' : 'text-slate-400'}`} />
                               <div>
                                 <p className={`text-xs font-bold ${embedKeyType === 'password' ? 'text-orange-700' : 'text-slate-600'}`}>Password</p>
                                 <p className={`text-[10px] ${embedKeyType === 'password' ? 'text-orange-500/80' : 'text-slate-400'}`}>Ketik manual</p>
                               </div>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { setEmbedKeyType('generate'); setEmbedPassword(''); setGeneratedKey(''); setGeneratedKeyUrl(''); }}
-                              className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all cursor-pointer
-                                ${embedKeyType === 'generate' ? 'border-violet-400 bg-violet-50/60' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
-                            >
+                            </div>
+                            <div className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left
+                              ${embedKeyType === 'generate' ? 'border-violet-400 bg-violet-50/60' : 'border-slate-200 bg-white'}`}>
                               {embedKeyType === 'generate' && <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-violet-400 flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
                               <KeyRound className={`w-4 h-4 shrink-0 ${embedKeyType === 'generate' ? 'text-violet-500' : 'text-slate-400'}`} />
                               <div>
                                 <p className={`text-xs font-bold ${embedKeyType === 'generate' ? 'text-violet-700' : 'text-slate-600'}`}>Buat Key</p>
                                 <p className={`text-[10px] ${embedKeyType === 'generate' ? 'text-violet-500/80' : 'text-slate-400'}`}>Auto-generate</p>
                               </div>
-                            </button>
+                            </div>
                           </div>
                         </div>
                       )}
 
                       {/* Manual password input */}
                       {(embedKeyType === 'password' || embedMethod !== 'aes') && (
-                        <div className="relative">
+                        <div className={`relative ${usePartitions ? 'opacity-40 pointer-events-none select-none' : ''}`}>
                           <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                           <input
                             type={showEmbedPassword ? 'text' : 'password'}
-                            value={embedPassword}
-                            onChange={(e) => setEmbedPassword(e.target.value)}
-                            placeholder="Masukkan password..."
+                            value={usePartitions ? '' : embedPassword}
+                            onChange={(e) => !usePartitions && setEmbedPassword(e.target.value)}
+                            placeholder={usePartitions ? 'Password diatur per partisi...' : 'Masukkan password...'}
+                            readOnly={usePartitions}
                             className="focus-ring w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-orange-300 transition-all"
                           />
-                          <button onClick={() => setShowEmbedPassword(!showEmbedPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
-                            {showEmbedPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
+                          {!usePartitions && (
+                            <button onClick={() => setShowEmbedPassword(!showEmbedPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
+                              {showEmbedPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          )}
                         </div>
                       )}
 
                       {/* Password strength */}
-                      {(embedKeyType === 'password' || embedMethod !== 'aes') && <PasswordStrengthIndicator password={embedPassword} />}
+                      {(embedKeyType === 'password' || embedMethod !== 'aes') && !usePartitions && <PasswordStrengthIndicator password={embedPassword} />}
 
                       {/* Generate Key UI */}
                       {embedMethod === 'aes' && embedKeyType === 'generate' && (
@@ -3007,79 +3016,64 @@ export function App() {
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-slate-700">Dekripsi Partisi</h3>
-                        <p className="text-[10px] text-slate-400">File ini memiliki {partitionBundleLabels.length} partisi terenkripsi</p>
+                        <p className="text-[10px] text-slate-400">File ini memiliki {partitionBundleLabels.length} partisi — masukkan password untuk membuka partisi yang sesuai</p>
                       </div>
-                      <span className="ml-auto text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">MODE PRO</span>
+                      <span className="ml-auto text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">MODE PRO</span>
                     </div>
 
-                    {/* Info */}
-                    <div className="flex items-start gap-2 px-3 py-2.5 bg-blue-50 border border-blue-200 rounded-xl mb-4">
-                      <Info className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
-                      <p className="text-[11px] text-blue-700 leading-snug">
-                        Setiap partisi dienkripsi dengan password berbeda. Pilih partisi dan masukkan passwordnya untuk membuka file di dalamnya. Kamu bisa membuka beberapa partisi secara berurutan.
+                    {/* Partisi labels info */}
+                    <div className="flex flex-wrap gap-1.5 mb-4">
+                      {partitionBundleLabels.map((label, idx) => {
+                        const pc = PARTITION_COLORS[idx % PARTITION_COLORS.length];
+                        return (
+                          <span key={label} className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold ${pc.badge}`}>
+                            <div className={`w-2 h-2 rounded-full ${pc.dot}`} />
+                            {label}
+                          </span>
+                        );
+                      })}
+                    </div>
+
+                    {/* Single password input */}
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type={showPartitionDecryptPassword ? 'text' : 'password'}
+                          value={partitionDecryptPassword}
+                          onChange={(e) => setPartitionDecryptPassword(e.target.value)}
+                          placeholder="Masukkan password partisi..."
+                          onKeyDown={(e) => { if (e.key === 'Enter') handlePartitionDecrypt(); }}
+                          className="focus-ring-accent w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-emerald-300 transition-all"
+                        />
+                        <button onClick={() => setShowPartitionDecryptPassword(!showPartitionDecryptPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
+                          {showPartitionDecryptPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={handlePartitionDecrypt}
+                        disabled={decrypting || !partitionDecryptPassword.trim()}
+                        className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white py-3 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
+                      >
+                        {decrypting ? (
+                          <><Loader2 className="w-4 h-4 animate-spin" />Mencari partisi yang cocok...</>
+                        ) : (
+                          <><Unlock className="w-4 h-4" />Buka Partisi</>
+                        )}
+                      </button>
+
+                      {/* Hint */}
+                      <p className="text-[11px] text-slate-400 text-center">
+                        Password akan otomatis dicocokkan ke partisi yang sesuai
                       </p>
                     </div>
 
-                    {/* Partition selector */}
-                    <div className="mb-3">
-                      <label className="text-xs font-semibold text-slate-500 mb-2 block">Pilih Partisi</label>
-                      <div className="flex flex-wrap gap-2">
-                        {partitionBundleLabels.map((label, idx) => {
-                          const pc = PARTITION_COLORS[idx % PARTITION_COLORS.length];
-                          const isSelected = selectedPartitionLabel === label;
-                          return (
-                            <button
-                              key={label}
-                              type="button"
-                              onClick={() => setSelectedPartitionLabel(label)}
-                              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 text-xs font-bold transition-all cursor-pointer
-                                ${isSelected ? `${pc.border} ${pc.bg} ${pc.label}` : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'}`}
-                            >
-                              <div className={`w-3 h-3 rounded-full ${isSelected ? pc.dot : 'bg-slate-300'}`} />
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Password input */}
-                    {selectedPartitionLabel && (
-                      <div className="space-y-3 animate-slideDown">
-                        <div className="relative">
-                          <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                          <input
-                            type={showPartitionDecryptPassword ? 'text' : 'password'}
-                            value={partitionDecryptPassword}
-                            onChange={(e) => setPartitionDecryptPassword(e.target.value)}
-                            placeholder={`Password ${selectedPartitionLabel}...`}
-                            onKeyDown={(e) => { if (e.key === 'Enter') handlePartitionDecrypt(); }}
-                            className="focus-ring-accent w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-emerald-300 transition-all"
-                          />
-                          <button onClick={() => setShowPartitionDecryptPassword(!showPartitionDecryptPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer">
-                            {showPartitionDecryptPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-
-                        <button
-                          onClick={handlePartitionDecrypt}
-                          disabled={decrypting || !partitionDecryptPassword.trim()}
-                          className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white py-3 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-emerald-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
-                        >
-                          {decrypting ? (
-                            <><Loader2 className="w-4 h-4 animate-spin" />Mendekripsi partisi...</>
-                          ) : (
-                            <><Unlock className="w-4 h-4" />Buka {selectedPartitionLabel}</>
-                          )}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Already decrypted partitions info */}
+                    {/* Already opened partitions */}
                     {decryptionDone && decryptedFiles.length > 0 && (
                       <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl animate-fadeIn">
                         <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span className="text-[11px] font-semibold text-emerald-700">{decryptedFiles.length} file berhasil dibuka dari partisi. Buka partisi lain jika perlu.</span>
+                        <span className="text-[11px] font-semibold text-emerald-700">{decryptedFiles.length} file berhasil dibuka. Masukkan password lain untuk buka partisi berikutnya.</span>
                       </div>
                     )}
                   </section>
