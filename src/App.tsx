@@ -24,6 +24,15 @@ import { PixelEncryptorView } from './PixelEncryptor';
 // App mode type for sidebar navigation
 type AppMode = 'stego' | 'pixel-encryptor';
 
+// Partition for Pro Mode multi-password encryption
+interface Partition {
+  id: string;
+  label: string;         // e.g. "Partisi A"
+  password: string;
+  showPassword: boolean;
+  fileIndexes: number[]; // indexes into secretFiles
+}
+
 type Tab = 'embed' | 'decrypt';
 type FilterCategory = 'all' | 'image' | 'video' | 'audio' | 'text' | 'other';
 
@@ -666,6 +675,12 @@ export function App() {
   const [faceVerified, setFaceVerified] = useState(false);
   const [stegoHasFace, setStegoHasFace] = useState(false);
 
+  // Partition state (Mode Pro / AES)
+  const [usePartitions, setUsePartitions] = useState(false);
+  const [partitions, setPartitions] = useState<Partition[]>([]);
+  // For decrypt: which partition label the user typed password for
+  const [decryptPartitionLabel, setDecryptPartitionLabel] = useState('');
+
   // Activity log state (Mode Pro)
   const [activityLog, setActivityLog] = useState<string[]>([]);
   const [showLogPopup, setShowLogPopup] = useState(false);
@@ -976,6 +991,56 @@ export function App() {
     setGeneratedKeyUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
   }, []);
 
+  // ── Partition helpers (Mode Pro) ───────────────────────────────────────
+  const PARTITION_COLORS = [
+    { bg: 'bg-emerald-50', border: 'border-emerald-300', badge: 'bg-emerald-100 text-emerald-700', label: 'text-emerald-700', dot: 'bg-emerald-500', ring: 'ring-emerald-400' },
+    { bg: 'bg-blue-50',    border: 'border-blue-300',    badge: 'bg-blue-100 text-blue-700',       label: 'text-blue-700',   dot: 'bg-blue-500',     ring: 'ring-blue-400' },
+    { bg: 'bg-violet-50',  border: 'border-violet-300',  badge: 'bg-violet-100 text-violet-700',   label: 'text-violet-700', dot: 'bg-violet-500',   ring: 'ring-violet-400' },
+    { bg: 'bg-rose-50',    border: 'border-rose-300',    badge: 'bg-rose-100 text-rose-700',       label: 'text-rose-700',   dot: 'bg-rose-500',     ring: 'ring-rose-400' },
+    { bg: 'bg-amber-50',   border: 'border-amber-300',   badge: 'bg-amber-100 text-amber-700',     label: 'text-amber-700',  dot: 'bg-amber-500',    ring: 'ring-amber-400' },
+  ];
+
+  const addPartition = () => {
+    if (partitions.length >= 5) return;
+    const idx = partitions.length;
+    const labels = ['A', 'B', 'C', 'D', 'E'];
+    setPartitions((prev) => [
+      ...prev,
+      { id: Math.random().toString(36).slice(2), label: `Partisi ${labels[idx]}`, password: '', showPassword: false, fileIndexes: [] },
+    ]);
+  };
+
+  const removePartition = (id: string) => {
+    setPartitions((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const updatePartitionPassword = (id: string, password: string) => {
+    setPartitions((prev) => prev.map((p) => (p.id === id ? { ...p, password } : p)));
+  };
+
+  const togglePartitionShowPassword = (id: string) => {
+    setPartitions((prev) => prev.map((p) => (p.id === id ? { ...p, showPassword: !p.showPassword } : p)));
+  };
+
+  const toggleFileInPartition = (partitionId: string, fileIndex: number) => {
+    setPartitions((prev) => prev.map((p) => {
+      if (p.id !== partitionId) {
+        return { ...p, fileIndexes: p.fileIndexes.filter((i) => i !== fileIndex) };
+      }
+      const has = p.fileIndexes.includes(fileIndex);
+      return { ...p, fileIndexes: has ? p.fileIndexes.filter((i) => i !== fileIndex) : [...p.fileIndexes, fileIndex] };
+    }));
+  };
+
+  const getFilePartition = (fileIndex: number): Partition | undefined => {
+    return partitions.find((p) => p.fileIndexes.includes(fileIndex));
+  };
+
+  const resetPartitions = () => {
+    setUsePartitions(false);
+    setPartitions([]);
+  };
+
   const handleKeyFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -993,6 +1058,17 @@ export function App() {
   const handleEmbed = async () => {
     if (!noCoverMode && !coverFile) return showToast('Pilih file cover terlebih dahulu!', 'error');
     if (secretFiles.length === 0) return showToast('Tambahkan minimal satu file rahasia!', 'error');
+
+    // Partition validation
+    if (usePartitions && embedMethod === 'aes') {
+      if (partitions.length < 2) return showToast('Tambahkan minimal 2 partisi!', 'error');
+      const hasEmptyPass = partitions.some((p) => !p.password.trim());
+      if (hasEmptyPass) return showToast('Semua partisi harus memiliki password!', 'error');
+      const totalAssigned = partitions.reduce((a, p) => a + p.fileIndexes.length, 0);
+      if (totalAssigned === 0) return showToast('Assign minimal satu file ke partisi!', 'error');
+      const unassigned = secretFiles.map((_, i) => i).filter((i) => !getFilePartition(i));
+      if (unassigned.length > 0) return showToast(`${unassigned.length} file belum diassign ke partisi!`, 'error');
+    }
 
     setEmbedding(true);
     setEmbedCompressionStats(null);
@@ -1024,6 +1100,74 @@ export function App() {
         ? Math.max(0, Math.round((1 - totalCompressedSize / totalOriginalSize) * 100))
         : 0;
       setEmbedCompressionStats({ originalSize: totalOriginalSize, compressedSize: totalCompressedSize, savedPercent });
+
+      // ── Partition Mode (AES only) ───────────────────────────────────────
+      if (usePartitions && embedMethod === 'aes') {
+        // Build a ZIP-like multi-partition bundle:
+        // For each partition we create a separate encrypted .enc blob, then bundle them
+        // as a JSON manifest embedded inside the main file using a special marker.
+        // Format: we embed a single "partition bundle" file that contains JSON metadata
+        // and each partition's encrypted data as base64.
+        const partitionBlobs: { label: string; data: string }[] = [];
+        for (const partition of partitions) {
+          const partFiles = partition.fileIndexes.map((i) => compressedFiles[i]);
+          const partComments: Record<number, string> = {};
+          partition.fileIndexes.forEach((origIdx, newIdx) => {
+            if (embedComments[origIdx]) partComments[newIdx] = embedComments[origIdx];
+          });
+          const partLog = [
+            `[${makeTs()}] Partisi "${partition.label}" dibuat`,
+            `[${makeTs()}] ${partFiles.length} file dalam partisi ini`,
+          ];
+          const { blob: partBlob } = await embedFilesNoCover(
+            partFiles, partition.password.trim(),
+            partComments, 'aes',
+            undefined,
+            partLog
+          );
+          const arrBuf = await partBlob.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(arrBuf)));
+          partitionBlobs.push({ label: partition.label, data: base64 });
+        }
+
+        // Encode bundle
+        const bundleJson = JSON.stringify({ type: 'partition-bundle', version: 1, partitions: partitionBlobs });
+        const bundleBytes = new TextEncoder().encode(bundleJson);
+        const bundleFile = new File([bundleBytes], '__partition_bundle__.json', { type: 'application/json' });
+
+        const creationLog: string[] = [
+          `[${makeTs()}] File stego partisi dibuat`,
+          `[${makeTs()}] ${partitions.length} partisi terenkripsi AES-256-GCM + Argon2`,
+          ...partitions.map((p) => `[${makeTs()}]   ${p.label}: ${p.fileIndexes.length} file`),
+          ...(embedFaceDescriptor ? [`[${makeTs()}] Face Lock diaktifkan`] : []),
+        ];
+
+        let blob: Blob;
+        let extension: string;
+        const bundlePw = '__PARTITION_BUNDLE__';
+        if (noCoverMode) {
+          ({ blob, extension } = await embedFilesNoCover([bundleFile], bundlePw, {}, 'aes', embedFaceDescriptor ?? undefined, creationLog));
+        } else {
+          ({ blob, extension } = await embedFiles(coverFile!, [bundleFile], bundlePw, {}, 'aes', embedFaceDescriptor ?? undefined, creationLog));
+        }
+
+        const url = URL.createObjectURL(blob);
+        setStegoResult({ url, extension });
+        const defaultName = noCoverMode ? `partitioned_encrypted.enc` : `stego_partitioned.${extension}`;
+        setStegoOutputName(defaultName);
+        setEditingStegoName(false);
+        const sp: FilePreview = { name: defaultName, size: blob.size, type: noCoverMode ? 'application/octet-stream' : coverFile!.type };
+        if (!noCoverMode) {
+          const cat = getFileCategory(coverFile!.type, coverFile!.name);
+          if (cat === 'image') sp.url = await blobToDataURL(blob);
+          else if (cat === 'text') sp.text = await blobToText(blob);
+          else if (cat === 'audio' || cat === 'video') sp.url = url;
+        }
+        setStegoPreview(sp);
+        clearEmbedPassword();
+        showToast(`File berhasil dienkripsi dalam ${partitions.length} partisi!`, 'success');
+        return;
+      }
 
       const methodToUse = passwordCopy ? embedMethod : undefined;
 
