@@ -429,6 +429,65 @@ function FaceScanner({ mode, storedDescriptor, onCapture, onVerified, onClose }:
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// ── Compression helpers using built-in CompressionStream API ──────────────
+async function compressData(data: ArrayBuffer): Promise<ArrayBuffer> {
+  const stream = new CompressionStream('deflate');
+  const writer = stream.writable.getWriter();
+  writer.write(new Uint8Array(data));
+  writer.close();
+  const chunks: Uint8Array[] = [];
+  const reader = stream.readable.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
+  return result.buffer;
+}
+
+async function decompressData(data: ArrayBuffer): Promise<ArrayBuffer> {
+  const stream = new DecompressionStream('deflate');
+  const writer = stream.writable.getWriter();
+  writer.write(new Uint8Array(data));
+  writer.close();
+  const chunks: Uint8Array[] = [];
+  const reader = stream.readable.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
+  return result.buffer;
+}
+
+// Marker to detect compressed payload: 4-byte magic "ZSTG"
+const COMPRESS_MAGIC = new Uint8Array([0x5A, 0x53, 0x54, 0x47]);
+
+function addCompressHeader(compressed: ArrayBuffer): ArrayBuffer {
+  const out = new Uint8Array(4 + compressed.byteLength);
+  out.set(COMPRESS_MAGIC, 0);
+  out.set(new Uint8Array(compressed), 4);
+  return out.buffer;
+}
+
+function stripCompressHeader(data: ArrayBuffer): { isCompressed: boolean; payload: ArrayBuffer } {
+  const bytes = new Uint8Array(data);
+  if (bytes.length > 4 &&
+      bytes[0] === COMPRESS_MAGIC[0] && bytes[1] === COMPRESS_MAGIC[1] &&
+      bytes[2] === COMPRESS_MAGIC[2] && bytes[3] === COMPRESS_MAGIC[3]) {
+    return { isCompressed: true, payload: bytes.slice(4).buffer };
+  }
+  return { isCompressed: false, payload: data };
+}
+
 function getFileIconEl(type: string, name: string) {
   const cat = getFileCategory(type, name);
   switch (cat) {
@@ -611,6 +670,18 @@ export function App() {
   const [activityLog, setActivityLog] = useState<string[]>([]);
   const [showLogPopup, setShowLogPopup] = useState(false);
 
+  // Compression stats state
+  const [embedCompressionStats, setEmbedCompressionStats] = useState<{
+    originalSize: number;
+    compressedSize: number;
+    savedPercent: number;
+  } | null>(null);
+  const [decryptCompressionStats, setDecryptCompressionStats] = useState<{
+    compressedSize: number;
+    decompressedSize: number;
+    savedPercent: number;
+  } | null>(null);
+
   const makeTs = () => new Date().toLocaleString('id-ID', {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -723,6 +794,7 @@ export function App() {
     setStegoPreview(null);
     setStegoOutputName('');
     setEditingStegoName(false);
+    setEmbedCompressionStats(null);
   };
 
   const resetEmbedKeyState = () => {
@@ -923,8 +995,10 @@ export function App() {
     if (secretFiles.length === 0) return showToast('Tambahkan minimal satu file rahasia!', 'error');
 
     setEmbedding(true);
+    setEmbedCompressionStats(null);
     const passwordCopy = embedPassword; // Copy before clearing
     try {
+      // ── Step 1: Rename files ────────────────────────────────────────────
       const renamedFiles = secretFiles.map((file, index) => {
         const customName = embedFileNames[index];
         if (customName && customName !== file.name) {
@@ -932,6 +1006,24 @@ export function App() {
         }
         return file;
       });
+
+      // ── Step 2: Compress each file before embedding ─────────────────────
+      let totalOriginalSize = 0;
+      let totalCompressedSize = 0;
+      const compressedFiles = await Promise.all(renamedFiles.map(async (file) => {
+        const buf = await readFileAsArrayBuffer(file);
+        totalOriginalSize += buf.byteLength;
+        const compressed = await compressData(buf);
+        const withHeader = addCompressHeader(compressed);
+        totalCompressedSize += withHeader.byteLength;
+        // Keep original extension so stego utils can still read type
+        return new File([withHeader], file.name, { type: file.type });
+      }));
+
+      const savedPercent = totalOriginalSize > 0
+        ? Math.max(0, Math.round((1 - totalCompressedSize / totalOriginalSize) * 100))
+        : 0;
+      setEmbedCompressionStats({ originalSize: totalOriginalSize, compressedSize: totalCompressedSize, savedPercent });
 
       const methodToUse = passwordCopy ? embedMethod : undefined;
 
@@ -941,7 +1033,7 @@ export function App() {
         noCoverMode
           ? `[${makeTs()}] Mode: Tanpa file cover (.enc)`
           : `[${makeTs()}] Cover: ${coverFile!.name}`,
-        `[${makeTs()}] ${renamedFiles.length} file rahasia disematkan`,
+        `[${makeTs()}] ${compressedFiles.length} file rahasia disematkan (dikompresi: ${savedPercent}% hemat)`,
         ...renamedFiles.map((f) => `[${makeTs()}]   - ${f.name} (${formatFileSize(f.size)})`),
         ...(passwordCopy
           ? [`[${makeTs()}] Enkripsi: ${methodToUse === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`]
@@ -954,14 +1046,14 @@ export function App() {
 
       if (noCoverMode) {
         ({ blob, extension } = await embedFilesNoCover(
-          renamedFiles, passwordCopy || undefined,
+          compressedFiles, passwordCopy || undefined,
           embedComments, methodToUse,
           embedFaceDescriptor ?? undefined,
           creationLog
         ));
       } else {
         ({ blob, extension } = await embedFiles(
-          coverFile!, renamedFiles, passwordCopy || undefined,
+          coverFile!, compressedFiles, passwordCopy || undefined,
           embedComments, methodToUse,
           embedFaceDescriptor ?? undefined,
           creationLog
@@ -1102,16 +1194,39 @@ export function App() {
     }
 
     setDecrypting(true);
+    setDecryptCompressionStats(null);
     const passwordCopy = decryptPassword;
     try {
       const { files, faceDescriptor, log: payloadLog } = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod);
 
+      // ── Decompress each file if it has the ZSTG header ──────────────────
+      let totalCompressedSize = 0;
+      let totalDecompressedSize = 0;
+      const decompressedFiles = await Promise.all(files.map(async (file) => {
+        const { isCompressed, payload } = stripCompressHeader(file.data);
+        if (isCompressed) {
+          totalCompressedSize += file.data.byteLength;
+          const decompressed = await decompressData(payload);
+          totalDecompressedSize += decompressed.byteLength;
+          return { ...file, data: decompressed, size: decompressed.byteLength };
+        }
+        // Not compressed (older file) — pass through
+        totalCompressedSize += file.data.byteLength;
+        totalDecompressedSize += file.data.byteLength;
+        return file;
+      }));
+
+      const savedPercent = totalDecompressedSize > 0
+        ? Math.max(0, Math.round((1 - totalCompressedSize / totalDecompressedSize) * 100))
+        : 0;
+      setDecryptCompressionStats({ compressedSize: totalCompressedSize, decompressedSize: totalDecompressedSize, savedPercent });
+
       // Simpan stored face descriptor untuk referensi (sudah diverifikasi sebelumnya)
       if (faceDescriptor) setStoredFaceDescriptor(faceDescriptor);
 
-      setDecryptedFiles(files);
+      setDecryptedFiles(decompressedFiles);
       // Initialize previous comment tracking so we can detect add vs edit
-      prevDecryptCommentsRef.current = Object.fromEntries(files.map((f) => [f.id, f.comment ?? '']));
+      prevDecryptCommentsRef.current = Object.fromEntries(decompressedFiles.map((f) => [f.id, f.comment ?? '']));
       setModified(false);
       setOpenedDecryptPreviews(new Set());
       setEditingComments(new Set());
@@ -1130,16 +1245,17 @@ export function App() {
       // Restore log from payload, then append new session entries — each with a fresh timestamp
       const sessionEntries: string[] = [];
       sessionEntries.push(`[${makeTs()}] Dekripsi berhasil: ${stegoFile?.name ?? 'file stego'}`);
-      sessionEntries.push(`[${makeTs()}] ${files.length} file berhasil diekstrak`);
-      for (const f of files) sessionEntries.push(`[${makeTs()}]   - ${f.name} (${formatFileSize(f.size)})`);
+      sessionEntries.push(`[${makeTs()}] ${decompressedFiles.length} file berhasil diekstrak`);
+      for (const f of decompressedFiles) sessionEntries.push(`[${makeTs()}]   - ${f.name} (${formatFileSize(f.size)})`);
       if (detectedMethod) sessionEntries.push(`[${makeTs()}] Metode enkripsi: ${detectedMethod === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`);
       if (faceDescriptor) sessionEntries.push(`[${makeTs()}] Face Lock: terverifikasi`);
+      if (savedPercent > 0) sessionEntries.push(`[${makeTs()}] Dekompresi: ${savedPercent}% ruang dihemat saat penyimpanan`);
       setActivityLog([...(payloadLog || []), ...sessionEntries]);
 
-      showToast(`Berhasil mendekripsi ${files.length} file! Password telah dihapus dari memori.`, 'success');
+      showToast(`Berhasil mendekripsi ${decompressedFiles.length} file! Password telah dihapus dari memori.`, 'success');
 
       const previews: Record<string, string> = {};
-      for (const f of files) {
+      for (const f of decompressedFiles) {
         const cat = getFileCategory(f.type, f.name);
         const blob = new Blob([f.data], { type: f.type });
         if (cat === 'image') previews[f.id] = await blobToDataURL(blob);
@@ -1371,6 +1487,7 @@ export function App() {
     setStoredFaceDescriptor(null);
     setStegoHasFace(false);
     setDecryptKeyType('password');
+    setDecryptCompressionStats(null);
     if (stegoInputRef.current) stegoInputRef.current.value = '';
   };
 
@@ -2127,6 +2244,37 @@ export function App() {
                         </div>
                       </div>
                     </div>
+                    {/* Compression stats */}
+                    {embedCompressionStats && (
+                      <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Zap className="w-3.5 h-3.5 text-teal-500 shrink-0" />
+                          <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wide">Kompresi File</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1">
+                            <div className="flex justify-between text-[10px] text-teal-600 mb-1">
+                              <span>{formatFileSize(embedCompressionStats.compressedSize)}</span>
+                              <span>{formatFileSize(embedCompressionStats.originalSize)}</span>
+                            </div>
+                            <div className="h-1.5 bg-teal-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-teal-400 rounded-full transition-all duration-700"
+                                style={{ width: `${100 - embedCompressionStats.savedPercent}%` }}
+                              />
+                            </div>
+                            <div className="flex justify-between text-[10px] text-teal-500 mt-1">
+                              <span>Terkompresi</span>
+                              <span>Asli</span>
+                            </div>
+                          </div>
+                          <div className="text-center shrink-0">
+                            <p className="text-lg font-black text-teal-600">{embedCompressionStats.savedPercent}%</p>
+                            <p className="text-[10px] text-teal-500 font-semibold leading-tight">lebih<br/>kecil</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     {/* Password cleared notice */}
                     <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl">
                       <Shield className="w-3.5 h-3.5 text-blue-500 shrink-0" />
@@ -2571,6 +2719,33 @@ export function App() {
                         })}
                       </div>
                     </div>
+
+                    {/* Decompression stats */}
+                    {decryptCompressionStats && decryptCompressionStats.savedPercent > 0 && (
+                      <div className="mb-4 rounded-xl border border-teal-200 bg-teal-50 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Zap className="w-3.5 h-3.5 text-teal-500 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-bold text-teal-700">Kompresi menghemat ruang penyimpanan</p>
+                              <p className="text-[10px] text-teal-500 mt-0.5">
+                                {formatFileSize(decryptCompressionStats.compressedSize)} disimpan → {formatFileSize(decryptCompressionStats.decompressedSize)} setelah dekompresi
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-center shrink-0 bg-white rounded-lg px-3 py-1.5 border border-teal-200">
+                            <p className="text-lg font-black text-teal-600">{decryptCompressionStats.savedPercent}%</p>
+                            <p className="text-[10px] text-teal-500 font-semibold">dihemat</p>
+                          </div>
+                        </div>
+                        <div className="mt-2 h-1.5 bg-teal-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-teal-400 rounded-full"
+                            style={{ width: `${100 - decryptCompressionStats.savedPercent}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     {/* Search */}
                     <div className="mb-4">
