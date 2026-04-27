@@ -591,6 +591,15 @@ function PasswordStrengthIndicator({ password }: { password: string }) {
   );
 }
 
+// ── Partition color palette (defined outside component to avoid recreation) ──
+const PARTITION_COLORS = [
+  { bg: 'bg-emerald-50', border: 'border-emerald-300', badge: 'bg-emerald-100 text-emerald-700', label: 'text-emerald-700', dot: 'bg-emerald-500', ring: 'ring-emerald-400' },
+  { bg: 'bg-blue-50',    border: 'border-blue-300',    badge: 'bg-blue-100 text-blue-700',       label: 'text-blue-700',   dot: 'bg-blue-500',     ring: 'ring-blue-400' },
+  { bg: 'bg-violet-50',  border: 'border-violet-300',  badge: 'bg-violet-100 text-violet-700',   label: 'text-violet-700', dot: 'bg-violet-500',   ring: 'ring-violet-400' },
+  { bg: 'bg-rose-50',    border: 'border-rose-300',    badge: 'bg-rose-100 text-rose-700',       label: 'text-rose-700',   dot: 'bg-rose-500',     ring: 'ring-rose-400' },
+  { bg: 'bg-amber-50',   border: 'border-amber-300',   badge: 'bg-amber-100 text-amber-700',     label: 'text-amber-700',  dot: 'bg-amber-500',    ring: 'ring-amber-400' },
+];
+
 export function App() {
   const [activeTab, setActiveTab] = useState<Tab>('embed');
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -997,13 +1006,6 @@ export function App() {
   }, []);
 
   // ── Partition helpers (Mode Pro) ───────────────────────────────────────
-  const PARTITION_COLORS = [
-    { bg: 'bg-emerald-50', border: 'border-emerald-300', badge: 'bg-emerald-100 text-emerald-700', label: 'text-emerald-700', dot: 'bg-emerald-500', ring: 'ring-emerald-400' },
-    { bg: 'bg-blue-50',    border: 'border-blue-300',    badge: 'bg-blue-100 text-blue-700',       label: 'text-blue-700',   dot: 'bg-blue-500',     ring: 'ring-blue-400' },
-    { bg: 'bg-violet-50',  border: 'border-violet-300',  badge: 'bg-violet-100 text-violet-700',   label: 'text-violet-700', dot: 'bg-violet-500',   ring: 'ring-violet-400' },
-    { bg: 'bg-rose-50',    border: 'border-rose-300',    badge: 'bg-rose-100 text-rose-700',       label: 'text-rose-700',   dot: 'bg-rose-500',     ring: 'ring-rose-400' },
-    { bg: 'bg-amber-50',   border: 'border-amber-300',   badge: 'bg-amber-100 text-amber-700',     label: 'text-amber-700',  dot: 'bg-amber-500',    ring: 'ring-amber-400' },
-  ];
 
   const addPartition = () => {
     if (partitions.length >= 5) return;
@@ -1131,7 +1133,14 @@ export function App() {
             partLog
           );
           const arrBuf = await partBlob.arrayBuffer();
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(arrBuf)));
+          // Convert to base64 safely without spread (avoids stack overflow on large files)
+          const bytes = new Uint8Array(arrBuf);
+          let binary = '';
+          const CHUNK = 8192;
+          for (let i = 0; i < bytes.length; i += CHUNK) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+          }
+          const base64 = btoa(binary);
           partitionBlobs.push({ label: partition.label, data: base64 });
         }
 
@@ -1463,7 +1472,7 @@ export function App() {
       const partitionEntry = bundle.partitions.find((p: { label: string }) => p.label === selectedPartitionLabel);
       if (!partitionEntry) throw new Error('Partisi tidak ditemukan');
 
-      // Step 2: Decode base64 partition blob
+      // Step 2: Decode base64 partition blob safely (avoids stack overflow)
       const binaryStr = atob(partitionEntry.data);
       const partBytes = new Uint8Array(binaryStr.length);
       for (let i = 0; i < binaryStr.length; i++) partBytes[i] = binaryStr.charCodeAt(i);
