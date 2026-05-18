@@ -640,6 +640,10 @@ export function App() {
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [stegoDetected, setStegoDetected] = useState(false);
   const [editingComments, setEditingComments] = useState<Set<string>>(new Set());
+  // Multi-comment system: stores list of comments per file
+  const [fileCommentsList, setFileCommentsList] = useState<Record<string, string[]>>({});
+  // Draft for new comment input per file
+  const [newCommentDraft, setNewCommentDraft] = useState<Record<string, string>>({});
   const [decryptionDone, setDecryptionDone] = useState(false);
   const [editingFileNames, setEditingFileNames] = useState<Set<string>>(new Set());
   const [newPassword, setNewPassword] = useState('');
@@ -948,6 +952,45 @@ export function App() {
     setModified(true);
   };
 
+  // ── Multi-comment helpers ──────────────────────────────────────────────
+  const syncCommentsToFile = (fileId: string, comments: string[]) => {
+    const combined = comments.join('\n---\n');
+    setDecryptedFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, comment: combined } : f)));
+    setModified(true);
+  };
+
+  const addCommentToFile = (fileId: string) => {
+    const draft = newCommentDraft[fileId]?.trim();
+    if (!draft) return;
+    const fileName = decryptedFiles.find((f) => f.id === fileId)?.name ?? '';
+    setFileCommentsList((prev) => {
+      const updated = [...(prev[fileId] || []), draft];
+      syncCommentsToFile(fileId, updated);
+      return { ...prev, [fileId]: updated };
+    });
+    setNewCommentDraft((prev) => ({ ...prev, [fileId]: '' }));
+    addLog(`Komentar ditambahkan pada file "${fileName}"`);
+  };
+
+  const deleteCommentFromFile = (fileId: string, index: number) => {
+    const fileName = decryptedFiles.find((f) => f.id === fileId)?.name ?? '';
+    setFileCommentsList((prev) => {
+      const updated = (prev[fileId] || []).filter((_, i) => i !== index);
+      syncCommentsToFile(fileId, updated);
+      return { ...prev, [fileId]: updated };
+    });
+    addLog(`Komentar dihapus dari file "${fileName}"`);
+  };
+
+  const editCommentInFile = (fileId: string, index: number, newText: string) => {
+    setFileCommentsList((prev) => {
+      const updated = (prev[fileId] || []).map((c, i) => (i === index ? newText : c));
+      syncCommentsToFile(fileId, updated);
+      return { ...prev, [fileId]: updated };
+    });
+  };
+
+
   // Secure password clearing function
   const clearEmbedPassword = useCallback(() => {
     secureWipeString(embedPassword);
@@ -1236,6 +1279,12 @@ export function App() {
       setModified(false);
       setOpenedDecryptPreviews(new Set());
       setEditingComments(new Set());
+      // Initialize multi-comment list from existing comment field
+      setFileCommentsList(Object.fromEntries(decompressedFiles.map((f) => {
+        const existing = f.comment ? [f.comment] : [];
+        return [f.id, existing];
+      })));
+      setNewCommentDraft({});
       setEditingFileNames(new Set());
       setDecryptionDone(true);
       setOriginalDecryptPassword(passwordCopy);
@@ -1675,7 +1724,7 @@ export function App() {
 
       {/* ====== IMAGE LIGHTBOX ====== */}
       {lightbox.open && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 animate-overlayIn">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 animate-overlayIn">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={closeLightbox} />
           <div className="relative max-w-[95vw] max-h-[95vh] animate-scaleIn">
             <button onClick={closeLightbox} className="absolute -top-3 -right-3 z-10 w-10 h-10 rounded-full bg-white shadow-xl flex items-center justify-center hover:bg-red-50 text-slate-500 hover:text-red-500 transition-all cursor-pointer">
@@ -2979,39 +3028,88 @@ export function App() {
                   )}
                 </div>
 
-                {/* Komentar */}
+                {/* Komentar — multi-comment system */}
                 <div className="px-5 pt-2 pb-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <MessageSquare className="w-3.5 h-3.5 text-amber-500" />
-                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Komentar</span>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="w-3.5 h-3.5 text-amber-500" />
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Komentar</span>
+                      {(fileCommentsList[file.id] || []).length > 0 && (
+                        <span className="bg-amber-100 text-amber-600 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                          {(fileCommentsList[file.id] || []).length}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  {isEditing ? (
-                    <div className="space-y-2">
-                      <textarea
-                        value={file.comment || ''}
-                        onChange={(e) => updateDecryptedFileComment(file.id, e.target.value)}
-                        placeholder="Tulis komentar..."
-                        rows={3}
-                        className="w-full bg-amber-50 border-2 border-amber-300 rounded-xl px-4 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-amber-400 focus:ring-4 focus:ring-amber-100 transition-all resize-none outline-none"
-                        autoFocus
-                      />
-                      <button onClick={() => toggleEditComment(file.id)} className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-xl text-sm font-bold transition-all cursor-pointer active:scale-[0.98]">
-                        <Check className="w-4 h-4" />Simpan Komentar
-                      </button>
+
+                  {/* Existing comments list */}
+                  {(fileCommentsList[file.id] || []).length > 0 ? (
+                    <div className="space-y-2 mb-3">
+                      {(fileCommentsList[file.id] || []).map((cmt, ci) => (
+                        <div key={ci} className="group relative bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                          {isEditing && editingComments.has(file.id + ':' + ci) ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={cmt}
+                                onChange={(e) => editCommentInFile(file.id, ci, e.target.value)}
+                                rows={2}
+                                autoFocus
+                                className="w-full bg-white border border-amber-300 rounded-lg px-3 py-2 text-sm text-slate-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-100 resize-none outline-none transition-all"
+                              />
+                              <button
+                                onClick={() => setEditingComments((prev) => { const n = new Set(prev); n.delete(file.id + ':' + ci); return n; })}
+                                className="flex items-center gap-1.5 text-[11px] font-bold text-amber-600 hover:text-amber-700 cursor-pointer"
+                              >
+                                <Check className="w-3 h-3" /> Selesai
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <p className="text-sm text-slate-700 leading-relaxed pr-16">{cmt}</p>
+                              <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => setEditingComments((prev) => { const n = new Set(prev); n.add(file.id + ':' + ci); return n; })}
+                                  className="p-1.5 rounded-lg bg-white hover:bg-amber-100 text-amber-500 hover:text-amber-700 transition-all cursor-pointer shadow-sm"
+                                  title="Edit komentar"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={() => deleteCommentFromFile(file.id, ci)}
+                                  className="p-1.5 rounded-lg bg-white hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer shadow-sm"
+                                  title="Hapus komentar"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                              <p className="text-[10px] text-amber-400 mt-1">#{ci + 1}</p>
+                            </>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   ) : (
-                    <button
-                      onClick={() => toggleEditComment(file.id)}
-                      className="w-full flex items-start justify-between gap-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 hover:border-amber-300 rounded-xl px-4 py-3 transition-all cursor-pointer text-left group"
-                    >
-                      <p className={`text-sm leading-relaxed flex-1 ${file.comment ? 'text-slate-600' : 'text-slate-400 italic'}`}>
-                        {file.comment || 'Ketuk untuk menambah komentar...'}
-                      </p>
-                      <div className="flex items-center gap-1 shrink-0 text-amber-400 group-hover:text-amber-600 transition-all mt-0.5">
-                        <Edit3 className="w-3.5 h-3.5" /><span className="text-[11px] font-semibold">Edit</span>
-                      </div>
-                    </button>
+                    <p className="text-xs text-slate-400 italic mb-3">Belum ada komentar. Tambahkan komentar pertama di bawah.</p>
                   )}
+
+                  {/* Add new comment input */}
+                  <div className="space-y-2">
+                    <textarea
+                      value={newCommentDraft[file.id] || ''}
+                      onChange={(e) => setNewCommentDraft((prev) => ({ ...prev, [file.id]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addCommentToFile(file.id); }}
+                      placeholder="Tulis komentar baru... (Ctrl+Enter untuk kirim)"
+                      rows={2}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-100 transition-all resize-none outline-none"
+                    />
+                    <button
+                      onClick={() => addCommentToFile(file.id)}
+                      disabled={!(newCommentDraft[file.id] || '').trim()}
+                      className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-white py-2.5 rounded-xl text-sm font-bold transition-all cursor-pointer active:scale-[0.98]"
+                    >
+                      <MessageSquarePlus className="w-4 h-4" />Tambah Komentar
+                    </button>
+                  </div>
                 </div>
               </div>
 
