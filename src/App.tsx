@@ -53,6 +53,11 @@ interface ImageLightbox {
   alt: string;
 }
 
+interface GalleryPopup {
+  open: boolean;
+  fileId: string;
+}
+
 // ──────────────────────────────────────────────
 // Face Scanner Component (face-api.js)
 // ──────────────────────────────────────────────
@@ -587,6 +592,7 @@ export function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog>({ open: false, fileId: '', fileName: '' });
   const [lightbox, setLightbox] = useState<ImageLightbox>({ open: false, src: '', alt: '' });
+  const [galleryPopup, setGalleryPopup] = useState<GalleryPopup>({ open: false, fileId: '' });
 
   // Sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -2693,10 +2699,6 @@ export function App() {
                             <AlertCircle className="w-4 h-4" />
                           </button>
                         )}
-                        <button onClick={toggleAllDecryptPreviews} className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all cursor-pointer ${allDecryptPreviewsOpen ? 'text-violet-600 bg-violet-100 hover:bg-violet-200' : 'text-slate-500 hover:text-slate-700 bg-slate-50 hover:bg-slate-100'}`} title={allDecryptPreviewsOpen ? 'Tutup semua preview' : 'Buka semua preview'}>
-                          {allDecryptPreviewsOpen ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          <span className="hidden sm:inline">{allDecryptPreviewsOpen ? '' : ''}</span>
-                        </button>
                         <button onClick={() => addFileInputRef.current?.click()} className="flex items-center gap-1.5 text-xs font-semibold text-violet-500 hover:text-violet-600 bg-violet-50 hover:bg-violet-100 px-3 py-2 rounded-lg transition-all cursor-pointer">
                           <Plus className="w-3.5 h-3.5" />Tambah File
                         </button>
@@ -2762,81 +2764,197 @@ export function App() {
                       )}
                     </div>
 
-                    {/* File list */}
-                    <div className="space-y-3">
-                      {filteredDecryptedFiles.length === 0 ? (
-                        <div className="py-8 flex flex-col items-center justify-center text-center">
-                          <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center mb-3"><Search className="w-5 h-5 text-slate-300" /></div>
-                          <p className="text-sm font-semibold text-slate-400">Tidak ada file ditemukan</p>
-                          <p className="text-xs text-slate-300 mt-1">Coba ubah filter atau kata kunci pencarian</p>
-                        </div>
-                      ) : (
-                        filteredDecryptedFiles.map((file) => {
+                    {/* Gallery Grid */}
+                    {filteredDecryptedFiles.length === 0 ? (
+                      <div className="py-8 flex flex-col items-center justify-center text-center">
+                        <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center mb-3"><Search className="w-5 h-5 text-slate-300" /></div>
+                        <p className="text-sm font-semibold text-slate-400">Tidak ada file ditemukan</p>
+                        <p className="text-xs text-slate-300 mt-1">Coba ubah filter atau kata kunci pencarian</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {filteredDecryptedFiles.map((file) => {
                           const cat = getFileCategory(file.type, file.name);
-                          const hasMediaPreview = cat !== 'other' && filePreviews[file.id];
+                          const previewUrl = filePreviews[file.id];
                           const hasComment = !!(file.comment);
-                          const isOpen = openedDecryptPreviews.has(file.id);
-                          const isEditing = editingComments.has(file.id);
-                          const isEditingName = editingFileNames.has(file.id);
                           return (
-                            <div key={file.id} className="rounded-xl overflow-hidden border border-slate-100 file-item">
-                              <div className="flex items-center gap-3 p-3">
-                                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${getFileIconColor(file.type, file.name)}`}>
-                                  {getFileIconEl(file.type, file.name)}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  {isEditingName ? (
-                                    <div className="flex items-center gap-1.5">
-                                      <input type="text" value={file.name} onChange={(e) => updateDecryptedFileName(file.id, e.target.value)} className="flex-1 min-w-0 bg-white border border-violet-300 rounded-lg px-2.5 py-1 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-violet-100 outline-none transition-all" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') toggleEditFileName(file.id); }} />
-                                      <button onClick={() => toggleEditFileName(file.id)} className="p-1.5 rounded-lg bg-violet-100 text-violet-600 hover:bg-violet-200 transition-all cursor-pointer shrink-0"><Check className="w-3.5 h-3.5" /></button>
+                            <button
+                              key={file.id}
+                              onClick={() => setGalleryPopup({ open: true, fileId: file.id })}
+                              className="group relative rounded-2xl overflow-hidden border border-slate-200 bg-white hover:border-violet-300 hover:shadow-lg hover:shadow-violet-100 transition-all cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-violet-300"
+                              style={{ aspectRatio: '1 / 1' }}
+                            >
+                              {/* Thumbnail area */}
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                {cat === 'image' && previewUrl ? (
+                                  <img src={previewUrl} alt={file.name} className="w-full h-full object-cover" />
+                                ) : cat === 'video' && previewUrl ? (
+                                  <div className="w-full h-full bg-slate-900 flex items-center justify-center">
+                                    <video src={previewUrl} className="w-full h-full object-cover opacity-70" muted />
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                      <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30">
+                                        <Film className="w-5 h-5 text-white" />
+                                      </div>
                                     </div>
-                                  ) : (
-                                    <div className="flex items-center gap-1.5 group/name">
-                                      <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
-                                      <button onClick={() => toggleEditFileName(file.id)} className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-violet-50 text-slate-400 hover:text-violet-500 transition-all cursor-pointer shrink-0" title="Ubah nama file"><Edit3 className="w-3 h-3" /></button>
-                                    </div>
-                                  )}
-                                  <div className="flex items-center gap-2">
-                                    <p className="text-xs text-slate-400">{formatFileSize(file.size)}</p>
-                                    {!isOpen && hasComment && <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md"><MessageSquare className="w-2.5 h-2.5" />Komentar</span>}
                                   </div>
-                                </div>
-                                <div className="flex items-center gap-0.5 shrink-0">
-                                  <button onClick={() => openDecryptPreview(file.id)} className={`p-2 rounded-lg transition-all cursor-pointer ${isOpen ? 'bg-violet-50 text-violet-500' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'}`} title={isOpen ? 'Tutup detail' : 'Lihat detail'}>
-                                    {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                                  </button>
-                                  <button onClick={() => downloadFile(file)} className="p-2 rounded-lg hover:bg-emerald-50 text-slate-400 hover:text-emerald-500 transition-all cursor-pointer" title="Unduh"><Download className="w-4 h-4" /></button>
-                                  <button onClick={() => requestRemoveDecryptedFile(file.id, file.name)} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer" title="Hapus"><Trash2 className="w-4 h-4" /></button>
+                                ) : cat === 'audio' ? (
+                                  <div className="w-full h-full bg-gradient-to-br from-pink-50 to-rose-100 flex flex-col items-center justify-center gap-2">
+                                    <div className="w-12 h-12 rounded-2xl bg-pink-100 flex items-center justify-center">
+                                      <Music className="w-6 h-6 text-pink-500" />
+                                    </div>
+                                  </div>
+                                ) : cat === 'text' ? (
+                                  <div className="w-full h-full bg-gradient-to-br from-emerald-50 to-teal-100 flex flex-col items-center justify-center gap-2 p-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-emerald-100 flex items-center justify-center shrink-0">
+                                      <FileText className="w-6 h-6 text-emerald-500" />
+                                    </div>
+                                    {previewUrl && (
+                                      <p className="text-[9px] text-emerald-700 font-mono leading-tight line-clamp-3 text-center opacity-70">{previewUrl.substring(0, 80)}</p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-100 flex flex-col items-center justify-center gap-2">
+                                    <div className="w-12 h-12 rounded-2xl bg-slate-200 flex items-center justify-center">
+                                      <FileIcon className="w-6 h-6 text-slate-500" />
+                                    </div>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{file.name.split('.').pop() || 'FILE'}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Hover overlay */}
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                <div className="bg-white/90 backdrop-blur-sm rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 shadow-lg">
+                                  <Eye className="w-3.5 h-3.5 text-violet-600" />
+                                  <span className="text-xs font-semibold text-violet-700">Buka</span>
                                 </div>
                               </div>
-                              {isOpen && (
-                                <div className="px-3 pb-3 space-y-3 animate-slideDown">
-                                  {hasMediaPreview && renderDecryptPreview(file.id, file.type, file.name)}
-                                  <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
-                                    <div className="flex items-center justify-between mb-1.5">
-                                      <div className="flex items-center gap-1.5">
-                                        <MessageSquare className="w-3 h-3 text-amber-500" />
-                                        <span className="text-[11px] font-semibold text-amber-600 uppercase tracking-wide">Komentar</span>
-                                      </div>
-                                      <button onClick={() => toggleEditComment(file.id)} className={`text-[11px] font-semibold px-2 py-0.5 rounded-md transition-all cursor-pointer ${isEditing ? 'text-amber-700 bg-amber-200 hover:bg-amber-300' : 'text-amber-500 hover:text-amber-600 hover:bg-amber-100'}`}>
-                                        {isEditing ? 'Selesai' : 'Edit'}
+
+                              {/* Comment badge */}
+                              {hasComment && (
+                                <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-amber-400 flex items-center justify-center shadow-sm">
+                                  <MessageSquare className="w-2.5 h-2.5 text-white" />
+                                </div>
+                              )}
+
+                              {/* File name footer */}
+                              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent px-2 py-2.5">
+                                <p className="text-[10px] font-semibold text-white truncate leading-tight">{file.name}</p>
+                                <p className="text-[9px] text-white/70">{formatFileSize(file.size)}</p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Gallery Popup / Detail Modal */}
+                    {galleryPopup.open && (() => {
+                      const file = decryptedFiles.find((f) => f.id === galleryPopup.fileId);
+                      if (!file) return null;
+                      const cat = getFileCategory(file.type, file.name);
+                      const previewData = filePreviews[file.id];
+                      const isEditing = editingComments.has(file.id);
+                      const isEditingName = editingFileNames.has(file.id);
+                      return (
+                        <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ backgroundColor: 'rgba(0,0,0,0.75)' }}>
+                          <div className="absolute inset-0" onClick={() => setGalleryPopup({ open: false, fileId: '' })} />
+                          <div className="relative bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]" style={{ animation: 'scaleIn 0.18s ease-out both' }}>
+                            {/* Header */}
+                            <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 shrink-0">
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${getFileIconColor(file.type, file.name)}`}>
+                                {getFileIconEl(file.type, file.name)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                {isEditingName ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <input type="text" value={file.name} onChange={(e) => updateDecryptedFileName(file.id, e.target.value)} className="flex-1 min-w-0 bg-white border border-violet-300 rounded-lg px-2.5 py-1 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-violet-100 outline-none transition-all" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') toggleEditFileName(file.id); }} />
+                                    <button onClick={() => toggleEditFileName(file.id)} className="p-1.5 rounded-lg bg-violet-100 text-violet-600 hover:bg-violet-200 transition-all cursor-pointer shrink-0"><Check className="w-3.5 h-3.5" /></button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 group/name">
+                                    <p className="text-sm font-semibold text-slate-700 truncate">{file.name}</p>
+                                    <button onClick={() => toggleEditFileName(file.id)} className="p-1 rounded-md opacity-0 group-hover/name:opacity-100 hover:bg-violet-50 text-slate-400 hover:text-violet-500 transition-all cursor-pointer shrink-0"><Edit3 className="w-3 h-3" /></button>
+                                  </div>
+                                )}
+                                <p className="text-[11px] text-slate-400">{formatFileSize(file.size)}</p>
+                              </div>
+                              <button onClick={() => setGalleryPopup({ open: false, fileId: '' })} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer shrink-0"><X className="w-4 h-4" /></button>
+                            </div>
+
+                            {/* Preview area */}
+                            <div className="overflow-y-auto flex-1">
+                              {previewData && (
+                                <div className="p-3 border-b border-slate-100">
+                                  {cat === 'image' ? (
+                                    <div className="rounded-xl overflow-hidden bg-slate-50 border border-slate-200 relative group">
+                                      <img src={previewData} alt={file.name} className="w-full max-h-72 object-contain" />
+                                      <button onClick={() => openLightbox(previewData, file.name)} className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer">
+                                        <div className="bg-white/90 backdrop-blur-sm rounded-xl px-3 py-2 flex items-center gap-2 shadow-lg"><Maximize2 className="w-4 h-4 text-slate-700" /><span className="text-xs font-semibold text-slate-700">Lihat Penuh</span></div>
                                       </button>
                                     </div>
-                                    {isEditing ? (
-                                      <textarea value={file.comment || ''} onChange={(e) => updateDecryptedFileComment(file.id, e.target.value)} placeholder="Tulis komentar..." rows={2} className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-xs text-slate-700 placeholder-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all resize-none outline-none" autoFocus />
-                                    ) : (
-                                      <p className={`text-xs leading-relaxed whitespace-pre-wrap ${file.comment ? 'text-slate-600' : 'text-slate-400 italic'}`}>
-                                        {file.comment || 'Tidak ada komentar.'}
-                                      </p>
-                                    )}
+                                  ) : cat === 'video' ? (
+                                    <video src={previewData} controls loop className="w-full max-h-72 rounded-xl bg-black border border-slate-200" />
+                                  ) : cat === 'audio' ? (
+                                    <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col items-center gap-3">
+                                      <div className="w-16 h-16 rounded-2xl bg-pink-100 flex items-center justify-center"><Music className="w-8 h-8 text-pink-500" /></div>
+                                      <audio src={previewData} controls loop className="w-full" />
+                                    </div>
+                                  ) : cat === 'text' ? (
+                                    <div className="max-h-48 overflow-auto rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs font-mono text-slate-600 leading-relaxed whitespace-pre-wrap">
+                                      {previewData.substring(0, 2000)}{previewData.length > 2000 && <span className="text-slate-400">... (terpotong)</span>}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              )}
+
+                              {/* No preview for unsupported types */}
+                              {!previewData && (
+                                <div className="p-6 flex flex-col items-center justify-center gap-3 border-b border-slate-100 bg-slate-50">
+                                  <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${getFileIconColor(file.type, file.name)}`}>
+                                    {cat === 'image' ? <Image className="w-8 h-8" /> : cat === 'video' ? <Film className="w-8 h-8" /> : cat === 'audio' ? <Music className="w-8 h-8" /> : cat === 'text' ? <FileText className="w-8 h-8" /> : <FileIcon className="w-8 h-8" />}
+                                  </div>
+                                  <div className="text-center">
+                                    <p className="text-sm font-semibold text-slate-600">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</p>
+                                    <p className="text-xs text-slate-400 mt-0.5">Pratinjau tidak tersedia</p>
                                   </div>
                                 </div>
                               )}
+
+                              {/* Comment section */}
+                              <div className="p-3">
+                                <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <MessageSquare className="w-3 h-3 text-amber-500" />
+                                      <span className="text-[11px] font-semibold text-amber-600 uppercase tracking-wide">Komentar</span>
+                                    </div>
+                                    <button onClick={() => toggleEditComment(file.id)} className={`text-[11px] font-semibold px-2 py-0.5 rounded-md transition-all cursor-pointer ${isEditing ? 'text-amber-700 bg-amber-200 hover:bg-amber-300' : 'text-amber-500 hover:text-amber-600 hover:bg-amber-100'}`}>
+                                      {isEditing ? 'Selesai' : 'Edit'}
+                                    </button>
+                                  </div>
+                                  {isEditing ? (
+                                    <textarea value={file.comment || ''} onChange={(e) => updateDecryptedFileComment(file.id, e.target.value)} placeholder="Tulis komentar..." rows={3} className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-xs text-slate-700 placeholder-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all resize-none outline-none" autoFocus />
+                                  ) : (
+                                    <p className={`text-xs leading-relaxed whitespace-pre-wrap ${file.comment ? 'text-slate-600' : 'text-slate-400 italic'}`}>{file.comment || 'Tidak ada komentar.'}</p>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          );
-                        })
-                      )}
-                    </div>
+
+                            {/* Action buttons */}
+                            <div className="flex items-center gap-2 px-4 py-3 border-t border-slate-100 bg-slate-50/50 shrink-0">
+                              <button onClick={() => downloadFile(file)} className="flex-1 flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white py-2.5 rounded-xl text-sm font-bold transition-all cursor-pointer shadow-sm shadow-emerald-200 active:scale-[0.98]">
+                                <Download className="w-4 h-4" />Unduh
+                              </button>
+                              <button onClick={() => { setGalleryPopup({ open: false, fileId: '' }); requestRemoveDecryptedFile(file.id, file.name); }} className="flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-500 hover:text-red-600 py-2.5 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer active:scale-[0.98]">
+                                <Trash2 className="w-4 h-4" />Hapus
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Download all */}
                     <div className="mt-5 pt-5 border-t border-slate-100">
