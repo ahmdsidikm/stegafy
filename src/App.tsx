@@ -954,8 +954,8 @@ export function App() {
 
   // ── Multi-comment helpers ──────────────────────────────────────────────
   const syncCommentsToFile = (fileId: string, comments: string[]) => {
-    const combined = comments.join('\n---\n');
-    setDecryptedFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, comment: combined } : f)));
+    const serialized = JSON.stringify(comments);
+    setDecryptedFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, comment: serialized } : f)));
     setModified(true);
   };
 
@@ -1279,10 +1279,14 @@ export function App() {
       setModified(false);
       setOpenedDecryptPreviews(new Set());
       setEditingComments(new Set());
-      // Initialize multi-comment list from existing comment field
+      // Initialize multi-comment list from existing comment field (JSON array or legacy string)
       setFileCommentsList(Object.fromEntries(decompressedFiles.map((f) => {
-        const existing = f.comment ? [f.comment] : [];
-        return [f.id, existing];
+        if (!f.comment) return [f.id, []];
+        try {
+          const parsed = JSON.parse(f.comment);
+          if (Array.isArray(parsed)) return [f.id, parsed];
+        } catch { /* not JSON, treat as legacy single comment */ }
+        return [f.id, [f.comment]];
       })));
       setNewCommentDraft({});
       setEditingFileNames(new Set());
@@ -2826,7 +2830,7 @@ export function App() {
                           {filteredDecryptedFiles.map((file) => {
                             const cat = getFileCategory(file.type, file.name);
                             const previewUrl = filePreviews[file.id];
-                            const hasComment = !!(file.comment);
+                            const hasComment = (() => { try { const p = JSON.parse(file.comment || '[]'); return Array.isArray(p) ? p.length > 0 : !!file.comment; } catch { return !!file.comment; } })();
                             return (
                               <button
                                 key={file.id}
