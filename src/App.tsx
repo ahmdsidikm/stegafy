@@ -2943,7 +2943,30 @@ export function App() {
                   {getFileIconEl(file.type, file.name)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] text-slate-400">{formatFileSize(file.size)} · {cat}</p>
+                  {isEditingName ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={file.name}
+                        onChange={(e) => updateDecryptedFileName(file.id, e.target.value)}
+                        className="flex-1 min-w-0 bg-slate-50 border-2 border-violet-400 rounded-xl px-3 py-1.5 text-sm font-semibold text-slate-700 focus:ring-4 focus:ring-violet-100 outline-none transition-all"
+                        autoFocus
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') toggleEditFileName(file.id); }}
+                      />
+                      <button onClick={() => toggleEditFileName(file.id)} className="p-2 rounded-xl bg-violet-500 text-white hover:bg-violet-600 transition-all cursor-pointer shrink-0 shadow-sm">
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => toggleEditFileName(file.id)}
+                      className="group flex items-center gap-1.5 text-left w-full"
+                    >
+                      <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-violet-700 transition-colors">{file.name}</p>
+                      <Edit3 className="w-3 h-3 text-slate-300 group-hover:text-violet-400 shrink-0 transition-colors" />
+                    </button>
+                  )}
+                  <p className="text-[11px] text-slate-400 mt-0.5">{formatFileSize(file.size)} · {cat}</p>
                 </div>
                 <button
                   onClick={() => setGalleryPopup({ open: false, fileId: '' })}
@@ -2994,39 +3017,6 @@ export function App() {
                     </div>
                   </div>
                 )}
-
-                {/* Nama File */}
-                <div className="px-5 pt-4 pb-2">
-                  <div className="flex items-center gap-2 mb-2">
-                    <FileIcon className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Nama File</span>
-                  </div>
-                  {isEditingName ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={file.name}
-                        onChange={(e) => updateDecryptedFileName(file.id, e.target.value)}
-                        className="flex-1 min-w-0 bg-slate-50 border-2 border-violet-400 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 focus:ring-4 focus:ring-violet-100 outline-none transition-all"
-                        autoFocus
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') toggleEditFileName(file.id); }}
-                      />
-                      <button onClick={() => toggleEditFileName(file.id)} className="p-2.5 rounded-xl bg-violet-500 text-white hover:bg-violet-600 transition-all cursor-pointer shrink-0 shadow-sm">
-                        <Check className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => toggleEditFileName(file.id)}
-                      className="w-full flex items-center justify-between gap-2 bg-slate-50 hover:bg-violet-50 border border-slate-200 hover:border-violet-300 rounded-xl px-3 py-2.5 transition-all cursor-pointer group"
-                    >
-                      <span className="text-sm text-slate-700 font-medium truncate">{file.name}</span>
-                      <div className="flex items-center gap-1 shrink-0 text-slate-400 group-hover:text-violet-500 transition-all">
-                        <Edit3 className="w-3.5 h-3.5" /><span className="text-[11px] font-semibold">Edit</span>
-                      </div>
-                    </button>
-                  )}
-                </div>
 
                 {/* Komentar — multi-comment system */}
                 <div className="px-5 pt-2 pb-4">
