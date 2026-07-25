@@ -207,15 +207,8 @@ export function PixelEncryptorView({ mode }: PixelEncryptorProps) {
 
       {/* Content wrapper with fade transition */}
       <div key={mode} className="animate-fadeUp">
-        <div className="mb-4 flex justify-end gap-2">
-          <button
-            onClick={() => window.open('about_PixelEncryptor.html', '_blank')}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
-          >
-            <Info className="w-3.5 h-3.5" />
-            Tentang
-          </button>
-          {(imageFile || resultSrc) && (
+        {(imageFile || resultSrc) && (
+          <div className="mb-4 flex justify-end">
             <button
               onClick={handleReset}
               className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
@@ -223,8 +216,8 @@ export function PixelEncryptorView({ mode }: PixelEncryptorProps) {
               <RefreshCw className="w-3.5 h-3.5" />
               Reset
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Left: Input */}
