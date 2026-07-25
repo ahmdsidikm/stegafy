@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tentang Pixel Encryptor — Dokumentasi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { background: #f8fafc; color: #1e293b; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 0.9rem; line-height: 1.7; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+a { color: #0891b2; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.site-header { position: sticky; top: 0; z-index: 50; background: rgba(255,255,255,0.88); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid #e2e8f0; }
+.header-inner { max-width: 1000px; margin: 0 auto; padding: 0 20px; height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.logo { display: flex; align-items: center; gap: 10px; text-decoration: none; flex-shrink: 0; cursor: pointer; }
+.logo-icon { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, #06b6d4, #14b8a6); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(6,182,212,.28); font-size: 17px; }
+.logo-name { font-size: 0.95rem; font-weight: 800; color: #1e293b; line-height: 1.1; }
+.logo-sub { font-size: 0.67rem; color: #94a3b8; font-weight: 500; }
+
+.nav-links { display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.nav-links::-webkit-scrollbar { display: none; }
+.nav-links a { white-space: nowrap; font-size: 0.78rem; font-weight: 600; color: #64748b; padding: 6px 12px; border-radius: 8px; transition: color .15s, background .15s; text-decoration: none; }
+.nav-links a:hover, .nav-links a.active { color: #0e7490; background: #ecfeff; }
+
+.menu-btn { display: none; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px; width: 36px; height: 36px; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+.menu-btn svg { width: 18px; height: 18px; stroke: #475569; fill: none; stroke-width: 2; stroke-linecap: round; }
+
+.mobile-nav { display: none; flex-direction: column; background: #fff; border-bottom: 1px solid #e2e8f0; padding: 10px 20px; gap: 2px; }
+.mobile-nav.open { display: flex; }
+.mobile-nav a { font-size: 0.84rem; font-weight: 600; color: #475569; padding: 10px 12px; border-radius: 8px; text-decoration: none; transition: color .15s, background .15s; }
+.mobile-nav a:hover { color: #0e7490; background: #ecfeff; }
+
+.page-wrap { max-width: 1000px; margin: 0 auto; padding: 0 20px 80px; }
+.main-content { max-width: 100%; width: 100%; }
+
+.hero { text-align: center; padding: 64px 0 52px; position: relative; }
+.hero::before { content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: min(700px, 100%); height: 280px; background: radial-gradient(ellipse at 50% 0%, rgba(6,182,212,.08) 0%, transparent 70%); pointer-events: none; }
+.hero-badge { display: inline-flex; align-items: center; gap: 6px; background: #ecfeff; border: 1px solid #a5f3fc; color: #0e7490; font-size: 0.7rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 5px 14px; border-radius: 999px; margin-bottom: 20px; }
+.hero h1 { font-size: clamp(1.8rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.03em; color: #1e293b; line-height: 1.1; margin-bottom: 16px; }
+.hero h1 span { background: linear-gradient(120deg, #06b6d4, #14b8a6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.hero-desc { font-size: 0.975rem; color: #64748b; max-width: 480px; margin: 0 auto 28px; }
+.hero-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.chip { background: #fff; border: 1px solid #e2e8f0; color: #475569; font-size: 0.72rem; font-weight: 600; padding: 5px 12px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+
+section { margin-top: 56px; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+.section-num { font-size: 0.68rem; font-weight: 700; color: #06b6d4; letter-spacing: .08em; flex-shrink: 0; }
+.section-line { flex: 1; height: 1px; background: #e2e8f0; }
+h2 { font-size: clamp(1.2rem, 2.5vw, 1.65rem); font-weight: 800; letter-spacing: -0.025em; color: #1e293b; margin-bottom: 12px; }
+h3 { font-size: 0.9rem; font-weight: 700; color: #334155; margin: 24px 0 8px; }
+p { color: #64748b; margin-bottom: 14px; }
+strong { color: #334155; font-weight: 600; }
+
+.card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px 22px; box-shadow: 0 1px 3px rgba(0,0,0,.05); transition: box-shadow .2s, transform .2s; }
+.card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.09); transform: translateY(-1px); }
+.card.t-cyan { border-top: 3px solid #22d3ee; }
+.card.t-teal { border-top: 3px solid #2dd4bf; }
+.card.t-slate { border-top: 3px solid #94a3b8; }
+.card.t-amber { border-top: 3px solid #f59e0b; }
+.card-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 17px; margin-bottom: 12px; }
+.ci-cyan { background: #ecfeff; }
+.ci-teal { background: #f0fdfa; }
+.ci-slate { background: #f8fafc; }
+.ci-amber { background: #fffbeb; }
+.card h3 { margin-top: 0; font-size: 0.855rem; }
+.card p { margin-bottom: 0; font-size: 0.82rem; }
+
+.g2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+.g3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+
+.callout { border-radius: 10px; padding: 14px 18px; margin: 18px 0; font-size: 0.83rem; display: flex; gap: 11px; align-items: flex-start; border: 1px solid transparent; }
+.callout-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+.c-warn { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.c-warn strong { color: #78350f; }
+.c-info { background: #ecfeff; border-color: #a5f3fc; color: #0e7490; }
+.c-info strong { color: #155e75; }
+.c-danger { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+.c-danger strong { color: #991b1b; }
+
+.step-list { display: flex; flex-direction: column; gap: 14px; margin: 18px 0; }
+.step-item { display: flex; gap: 14px; align-items: flex-start; }
+.step-num { width: 28px; height: 28px; border-radius: 8px; color: #fff; font-size: 0.72rem; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+.step-content h4 { font-size: 0.875rem; font-weight: 700; color: #334155; margin-bottom: 3px; }
+.step-content p { font-size: 0.82rem; margin-bottom: 0; }
+
+.xor-demo { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px 24px; margin: 18px 0; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+.xor-demo-title { font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 16px; }
+.xor-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
+.xor-label { font-size: 0.73rem; font-weight: 600; color: #64748b; min-width: 90px; }
+.xor-bits { display: flex; gap: 4px; flex-wrap: wrap; }
+.xor-bit { min-width: 46px; height: 30px; padding: 0 6px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; font-family: monospace; }
+.xb0 { background: #f1f5f9; color: #64748b; }
+.xb1 { background: #cffafe; color: #0e7490; }
+.xbR { background: #ccfbf1; color: #0f766e; }
+.xor-sep { width: 100%; height: 1px; background: #f1f5f9; margin: 8px 0; }
+
+.faq-list { margin-top: 20px; }
+.faq-item { border-bottom: 1px solid #e2e8f0; }
+.faq-item:first-child { border-top: 1px solid #e2e8f0; }
+.faq-q { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 4px; cursor: pointer; font-weight: 600; font-size: 0.875rem; color: #334155; user-select: none; transition: color .15s; }
+.faq-q:hover { color: #0e7490; }
+.faq-icon { width: 24px; height: 24px; border-radius: 6px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 14px; color: #64748b; transition: background .15s, transform .25s; }
+.faq-item.open .faq-icon { background: #cffafe; color: #0e7490; transform: rotate(45deg); }
+.faq-a { max-height: 0; overflow: hidden; transition: max-height .35s ease; font-size: 0.83rem; color: #64748b; }
+.faq-item.open .faq-a { max-height: 500px; }
+.faq-a-inner { padding: 0 4px 18px; }
+
+footer { border-top: 1px solid #e2e8f0; padding: 32px 20px; text-align: center; font-size: 0.77rem; color: #94a3b8; background: #fff; }
+
+.reveal { opacity: 0; transform: translateY(16px); transition: opacity .5s ease, transform .5s ease; }
+.reveal.vis { opacity: 1; transform: none; }
+
+@media (max-width: 768px) { .nav-links { display: none; } .menu-btn { display: flex; } .hero { padding: 44px 0 40px; } }
+@media (max-width: 480px) { .hero h1 { font-size: 1.75rem; } .g2, .g3 { grid-template-columns: 1fr; } }
+
+code { font-family: 'SF Mono','Fira Code',Consolas,monospace; font-size: 11px; background: #f1f5f9; color: #475569; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <div class="logo" onclick="window.history.length>1?history.back():window.close()">
+      <div class="logo-icon">🔒</div>
+      <div>
+        <div class="logo-name">Pixel Encryptor</div>
+        <div class="logo-sub">Dokumentasi</div>
+      </div>
+    </div>
+    <nav class="nav-links" id="navLinks">
+      <a href="#cara-kerja">Cara Kerja</a>
+      <a href="#xor">Visualisasi XOR</a>
+      <a href="#alur">Cara Pakai</a>
+      <a href="#keamanan">Keamanan</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <button class="menu-btn" id="menuBtn" aria-label="Menu">
+      <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+  </div>
+  <nav class="mobile-nav" id="mobileNav">
+    <a href="#cara-kerja" onclick="closeMobileNav()">Cara Kerja</a>
+    <a href="#xor" onclick="closeMobileNav()">Visualisasi XOR</a>
+    <a href="#alur" onclick="closeMobileNav()">Cara Pakai</a>
+    <a href="#keamanan" onclick="closeMobileNav()">Keamanan</a>
+    <a href="#faq" onclick="closeMobileNav()">FAQ</a>
+  </nav>
+</header>
+
+<div class="page-wrap">
+
+  <div class="hero reveal">
+    <div class="hero-badge">📖 Panduan &amp; Dokumentasi</div>
+    <h1>Semua yang perlu kamu tahu<br>tentang <span>Pixel Encryptor</span></h1>
+    <p class="hero-desc">Cara kerja enkripsi berbasis piksel, algoritma di baliknya, dan panduan penggunaan lengkap.</p>
+    <div class="hero-tags">
+      <span class="chip">XOR Cipher</span>
+      <span class="chip">Mulberry32 PRNG</span>
+      <span class="chip">Canvas API</span>
+      <span class="chip">100% Client-Side</span>
+    </div>
+  </div>
+
+  <div class="main-content">
+
+    <section id="cara-kerja">
+      <div class="section-header reveal"><span class="section-num">01</span><div class="section-line"></div></div>
+      <h2 class="reveal">Cara Kerja Enkripsi Piksel</h2>
+      <p class="reveal">Pixel Encryptor mengubah gambar menjadi tampak seperti noise acak dengan meng-<strong>XOR</strong> nilai R, G, B setiap piksel dengan angka pseudo-acak yang dihasilkan dari password kamu. Karena XOR bersifat simetris, meng-XOR ulang dengan urutan angka yang sama persis akan mengembalikan gambar asli.</p>
+
+      <div class="callout c-info reveal">
+        <span class="callout-icon">💡</span>
+        <div><strong>Kenapa hasilnya selalu bisa dibalik?</strong> <code>A XOR B XOR B = A</code>. Selama key stream (urutan angka acak) yang dipakai saat dekripsi identik dengan saat enkripsi, gambar akan kembali persis seperti semula, byte demi byte.</div>
+      </div>
+
+      <h3 class="reveal">Password → Seed → Key Stream</h3>
+      <p class="reveal">Password diubah menjadi angka <strong>seed</strong> 32-bit lewat hash FNV-1a, lalu seed itu memberi makan generator angka acak <strong>Mulberry32</strong>. Generator ini deterministik: seed yang sama akan selalu menghasilkan urutan angka yang sama, itulah yang membuat proses enkripsi/dekripsi bisa dibalik hanya dengan password yang identik.</p>
+
+      <div class="g3 reveal">
+        <div class="card t-cyan">
+          <div class="card-icon ci-cyan">🔑</div>
+          <h3>1. Hash Password</h3>
+          <p>Setiap karakter password di-XOR dan dikalikan ke sebuah hash FNV-1a sampai menghasilkan satu angka seed 32-bit.</p>
+        </div>
+        <div class="card t-teal">
+          <div class="card-icon ci-teal">🎲</div>
+          <h3>2. Generate Key Stream</h3>
+          <p>Seed tadi menjalankan Mulberry32 untuk menghasilkan tiga angka 0–255 (R, G, B) per piksel, berurutan dan deterministik.</p>
+        </div>
+        <div class="card t-slate">
+          <div class="card-icon ci-slate">🖼️</div>
+          <h3>3. XOR per Piksel</h3>
+          <p>Setiap channel R/G/B piksel di-XOR dengan angka key stream yang sesuai, lalu hasilnya digambar ulang ke canvas.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="xor">
+      <div class="section-header reveal"><span class="section-num">02</span><div class="section-line"></div></div>
+      <h2 class="reveal">Visualisasi Operasi XOR</h2>
+      <p class="reveal">Contoh satu piksel (R, G, B) yang dienkripsi dengan tiga angka key stream, lalu didekripsi kembali dengan angka key stream yang sama.</p>
+
+      <div class="xor-demo reveal">
+        <div class="xor-demo-title">Enkripsi</div>
+        <div class="xor-row">
+          <span class="xor-label">Piksel asli</span>
+          <div class="xor-bits"><div class="xor-bit xb0">R 210</div><div class="xor-bit xb0">G 140</div><div class="xor-bit xb0">B 88</div></div>
+        </div>
+        <div class="xor-row">
+          <span class="xor-label">Key stream</span>
+          <div class="xor-bits"><div class="xor-bit xb1">73</div><div class="xor-bit xb1">201</div><div class="xor-bit xb1">14</div></div>
+        </div>
+        <div class="xor-sep"></div>
+        <div class="xor-row">
+          <span class="xor-label">Hasil XOR</span>
+          <div class="xor-bits"><div class="xor-bit xbR">155</div><div class="xor-bit xbR">85</div><div class="xor-bit xbR">94</div></div>
+        </div>
+      </div>
+
+      <div class="xor-demo reveal">
+        <div class="xor-demo-title">Dekripsi (key stream identik)</div>
+        <div class="xor-row">
+          <span class="xor-label">Piksel terenkripsi</span>
+          <div class="xor-bits"><div class="xor-bit xb0">155</div><div class="xor-bit xb0">85</div><div class="xor-bit xb0">94</div></div>
+        </div>
+        <div class="xor-row">
+          <span class="xor-label">Key stream</span>
+          <div class="xor-bits"><div class="xor-bit xb1">73</div><div class="xor-bit xb1">201</div><div class="xor-bit xb1">14</div></div>
+        </div>
+        <div class="xor-sep"></div>
+        <div class="xor-row">
+          <span class="xor-label">Hasil XOR</span>
+          <div class="xor-bits"><div class="xor-bit xbR">R 210</div><div class="xor-bit xbR">G 140</div><div class="xor-bit xbR">B 88</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="alur">
+      <div class="section-header reveal"><span class="section-num">03</span><div class="section-line"></div></div>
+      <h2 class="reveal">Cara Pakai</h2>
+
+      <h3 class="reveal">🔒 Mengenkripsi Gambar</h3>
+      <div class="step-list reveal">
+        <div class="step-item">
+          <div class="step-num" style="background:#06b6d4;">1</div>
+          <div class="step-content"><h4>Pilih Gambar</h4><p>Klik atau drag &amp; drop gambar (PNG, JPG, BMP, WebP).</p></div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:#06b6d4;">2</div>
+          <div class="step-content"><h4>Masukkan Password</h4><p>Password ini adalah satu-satunya kunci untuk membalikkan hasil enkripsi.</p></div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:#06b6d4;">3</div>
+          <div class="step-content"><h4>Klik Enkripsi Gambar</h4><p>Gambar akan berubah menjadi noise acak dan bisa diunduh sebagai PNG.</p></div>
+        </div>
+      </div>
+
+      <h3 class="reveal">🔓 Mendekripsi Gambar</h3>
+      <div class="step-list reveal">
+        <div class="step-item">
+          <div class="step-num" style="background:#14b8a6;">1</div>
+          <div class="step-content"><h4>Pilih Gambar Terenkripsi</h4><p>Upload file PNG hasil enkripsi sebelumnya.</p></div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:#14b8a6;">2</div>
+          <div class="step-content"><h4>Masukkan Password yang Sama</h4><p>Harus identik dengan password yang dipakai saat enkripsi.</p></div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:#14b8a6;">3</div>
+          <div class="step-content"><h4>Klik Dekripsi Gambar</h4><p>Gambar asli akan muncul kembali dan bisa diunduh.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="keamanan">
+      <div class="section-header reveal"><span class="section-num">04</span><div class="section-line"></div></div>
+      <h2 class="reveal">Keamanan &amp; Batasan</h2>
+
+      <div class="g2 reveal">
+        <div class="card t-cyan">
+          <div class="card-icon ci-cyan">🖥️</div>
+          <h3>100% Client-Side</h3>
+          <p>Seluruh proses enkripsi berjalan di browser lewat Canvas API. Gambar dan password tidak pernah dikirim ke server mana pun.</p>
+        </div>
+        <div class="card t-teal">
+          <div class="card-icon ci-teal">🔁</div>
+          <h3>Simetris</h3>
+          <p>Password yang sama persis dipakai untuk enkripsi maupun dekripsi — tidak ada mekanisme reset password.</p>
+        </div>
+      </div>
+
+      <div class="callout c-danger reveal">
+        <span class="callout-icon">⚠️</span>
+        <div><strong>Bukan kriptografi tingkat produksi.</strong> XOR dengan PRNG seperti Mulberry32 tidak dirancang untuk keamanan kriptografis — ia tidak tahan terhadap known-plaintext attack dan tidak memakai key derivation seperti PBKDF2/Argon2. Cocok untuk menyamarkan gambar secara ringan, bukan untuk melindungi data yang benar-benar sensitif.</div>
+      </div>
+
+      <div class="callout c-warn reveal">
+        <span class="callout-icon">⚠️</span>
+        <div><strong>Password hilang = gambar tidak bisa dipulihkan.</strong> Tidak ada backdoor atau cara pemulihan lain selain memasukkan password yang identik dengan saat enkripsi.</div>
+      </div>
+    </section>
+
+    <section id="faq">
+      <div class="section-header reveal"><span class="section-num">05</span><div class="section-line"></div></div>
+      <h2 class="reveal">FAQ</h2>
+
+      <div class="faq-list reveal">
+        <div class="faq-item">
+          <div class="faq-q" onclick="toggleFaq(this)">Kenapa hasil enkripsi harus PNG?<span class="faq-icon">+</span></div>
+          <div class="faq-a"><div class="faq-a-inner">PNG bersifat lossless, sehingga setiap byte piksel hasil XOR tersimpan persis tanpa kompresi yang bisa merusak data — dibutuhkan agar proses dekripsi bisa mengembalikan gambar asli secara sempurna.</div></div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q" onclick="toggleFaq(this)">Apakah ukuran gambar mempengaruhi hasil?<span class="faq-icon">+</span></div>
+          <div class="faq-a"><div class="faq-a-inner">Tidak. Ukuran (lebar × tinggi) gambar tetap sama sebelum dan sesudah proses — hanya nilai warna tiap piksel yang berubah.</div></div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q" onclick="toggleFaq(this)">Apa yang terjadi jika password salah saat dekripsi?<span class="faq-icon">+</span></div>
+          <div class="faq-a"><div class="faq-a-inner">Key stream yang dihasilkan akan berbeda total, sehingga hasil XOR hanya akan menghasilkan noise acak lain, bukan gambar asli.</div></div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q" onclick="toggleFaq(this)">Apakah alpha channel (transparansi) ikut dienkripsi?<span class="faq-icon">+</span></div>
+          <div class="faq-a"><div class="faq-a-inner">Tidak. Hanya channel R, G, B yang di-XOR; channel alpha dibiarkan apa adanya agar transparansi gambar tetap utuh.</div></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<footer>
+  <p>Pixel Encryptor &copy; 2026 — Semua pemrosesan berjalan di browser kamu.</p>
+  <p style="margin-top:5px;opacity:.6;">XOR Cipher · Mulberry32 PRNG · Canvas API</p>
+</footer>
+
+<script>
+document.getElementById('menuBtn').addEventListener('click', () => {
+  document.getElementById('mobileNav').classList.toggle('open');
+});
+function closeMobileNav() { document.getElementById('mobileNav').classList.remove('open'); }
+
+function toggleFaq(el) {
+  const item = el.closest('.faq-item');
+  const wasOpen = item.classList.contains('open');
+  document.querySelectorAll('.faq-item.open').forEach(i => i.classList.remove('open'));
+  if (!wasOpen) item.classList.add('open');
+}
+
+const ro = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('vis'); ro.unobserve(e.target); } });
+}, { threshold: 0.07 });
+document.querySelectorAll('.reveal').forEach(el => ro.observe(el));
+
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('.nav-links a');
+const ao = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      const id = '#' + e.target.id;
+      navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === id));
+    }
+  });
+}, { threshold: 0.4 });
+sections.forEach(s => ao.observe(s));
+</script>
+</body>
+</html>
