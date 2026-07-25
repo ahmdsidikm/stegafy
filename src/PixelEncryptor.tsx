@@ -144,14 +144,16 @@ export function PixelEncryptorView({ mode }: PixelEncryptorProps) {
       const processed = await processPixels(imageData, password, mode);
 
       ctx.putImageData(processed, 0, 0);
-      const outputUrl = canvas.toDataURL('image/png');
+      const outputUrl = mode === 'encrypt'
+        ? canvas.toDataURL('image/png')
+        : canvas.toDataURL('image/jpeg', 0.9);
       setResultSrc(outputUrl);
 
       const baseName = imageFile.name.replace(/\.[^.]+$/, '');
       setResultName(
         mode === 'encrypt'
           ? `${baseName}_encrypted.png`
-          : `${baseName}_decrypted.png`
+          : `${baseName}_decrypted.jpg`
       );
 
       showToast(
