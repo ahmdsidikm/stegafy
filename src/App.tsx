@@ -217,7 +217,7 @@ export function App() {
         <footer className="border-t border-slate-100 mt-auto bg-white">
           <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col items-center gap-2">
             <a
-              href="about.html"
+              href={appMode === 'pixel-encryptor' ? 'about_PixelEncryptor.html' : 'about.html'}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-slate-200 transition-all cursor-pointer"
