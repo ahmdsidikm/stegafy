@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   Upload, X, Download, Lock, Unlock, Eye, EyeOff,
   AlertCircle, CheckCircle, Loader2, Info, RefreshCw,
@@ -75,87 +75,6 @@ function readImageFile(file: File): Promise<HTMLImageElement> {
 }
 
 // ──────────────────────────────────────────────
-// Transition overlay component
-// ──────────────────────────────────────────────
-
-function ModeTransitionOverlay({ active, mode }: { active: boolean; mode: PixelMode }) {
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9999,
-        pointerEvents: active ? 'all' : 'none',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Radial wipe layer */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          background: mode === 'encrypt'
-            ? 'radial-gradient(circle at 50% 50%, #06b6d4 0%, #0ea5e9 60%, #0284c7 100%)'
-            : 'radial-gradient(circle at 50% 50%, #14b8a6 0%, #10b981 60%, #059669 100%)',
-          transform: active ? 'scale(4)' : 'scale(0)',
-          borderRadius: active ? '0%' : '50%',
-          transition: active
-            ? 'transform 0.55s cubic-bezier(0.4,0,0.2,1), border-radius 0.55s ease'
-            : 'transform 0.4s cubic-bezier(0.4,0,0.2,1) 0.05s, border-radius 0.4s ease 0.05s',
-          opacity: active ? 1 : 0,
-        }}
-      />
-      {/* Icon + label in center */}
-      <div
-        style={{
-          position: 'relative',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '12px',
-          color: 'white',
-          transition: 'opacity 0.2s ease',
-          opacity: active ? 1 : 0,
-        }}
-      >
-        <div
-          style={{
-            width: 72,
-            height: 72,
-            borderRadius: 20,
-            background: 'rgba(255,255,255,0.2)',
-            backdropFilter: 'blur(8px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
-            animation: active ? 'spinIn 0.45s cubic-bezier(0.34,1.56,0.64,1) forwards' : 'none',
-          }}
-        >
-          {mode === 'encrypt'
-            ? <Lock style={{ width: 32, height: 32 }} />
-            : <Unlock style={{ width: 32, height: 32 }} />
-          }
-        </div>
-        <p style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', textShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
-          {mode === 'encrypt' ? 'Mode Enkripsi' : 'Mode Dekripsi'}
-        </p>
-      </div>
-
-      <style>{`
-        @keyframes spinIn {
-          0%   { transform: rotate(-180deg) scale(0.4); opacity: 0; }
-          100% { transform: rotate(0deg) scale(1);    opacity: 1; }
-        }
-      `}</style>
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────
 // Main exported component
 // ──────────────────────────────────────────────
 
@@ -164,7 +83,7 @@ interface PixelEncryptorProps {
   setMode: (m: PixelMode) => void;
 }
 
-export function PixelEncryptorView({ mode, setMode }: PixelEncryptorProps) {
+export function PixelEncryptorView({ mode }: PixelEncryptorProps) {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const [resultSrc, setResultSrc] = useState<string | null>(null);
@@ -174,36 +93,7 @@ export function PixelEncryptorView({ mode, setMode }: PixelEncryptorProps) {
   const [processing, setProcessing] = useState(false);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
 
-  // Transition state
-  const [transitioning, setTransitioning] = useState(false);
-  const [transitionMode, setTransitionMode] = useState<PixelMode>(mode);
-  // Content visibility for slide effect
-  const [contentVisible, setContentVisible] = useState(true);
-  const [prevMode, setPrevMode] = useState<PixelMode>(mode);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Handle mode change with animation
-  const handleSetMode = useCallback((newMode: PixelMode) => {
-    if (newMode === mode || transitioning) return;
-    // 1. Fade out content
-    setContentVisible(false);
-    // 2. After brief pause, trigger overlay
-    setTimeout(() => {
-      setTransitionMode(newMode);
-      setTransitioning(true);
-      setPrevMode(newMode);
-    }, 150);
-    // 3. Commit mode change during overlay peak
-    setTimeout(() => {
-      setMode(newMode);
-    }, 350);
-    // 4. Fade overlay back out, reveal content
-    setTimeout(() => {
-      setTransitioning(false);
-      setContentVisible(true);
-    }, 700);
-  }, [mode, transitioning, setMode]);
 
   const showToast = useCallback((message: string, type: ToastMsg['type']) => {
     const id = Math.random().toString(36).substring(2);
@@ -296,9 +186,6 @@ export function PixelEncryptorView({ mode, setMode }: PixelEncryptorProps) {
 
   return (
     <div className="relative">
-      {/* Mode transition overlay */}
-      <ModeTransitionOverlay active={transitioning} mode={transitionMode} />
-
       {/* Toasts */}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col-reverse gap-2 w-[min(92vw,380px)] pointer-events-none">
         {toasts.map((toast) => (
@@ -319,13 +206,7 @@ export function PixelEncryptorView({ mode, setMode }: PixelEncryptorProps) {
       </div>
 
       {/* Content wrapper with fade transition */}
-      <div
-        style={{
-          opacity: contentVisible ? 1 : 0,
-          transform: contentVisible ? 'translateY(0)' : 'translateY(8px)',
-          transition: 'opacity 0.25s ease, transform 0.25s ease',
-        }}
-      >
+      <div key={mode} className="animate-fadeUp">
         {(imageFile || resultSrc) && (
           <div className="mb-4 flex justify-end">
             <button
