@@ -648,6 +648,16 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
   // Key type state (decrypt)
   const [decryptKeyType, setDecryptKeyType] = useState<'password' | 'keyfile'>('password');
 
+  // Popup password yang muncul otomatis saat file tersembunyi terdeteksi
+  const [pwPopupOpen, setPwPopupOpen] = useState(false);
+  const [pwPopupValue, setPwPopupValue] = useState('');
+  const [pwPopupShow, setPwPopupShow] = useState(false);
+  const [pwPopupError, setPwPopupError] = useState('');
+  const pwPopupInputRef = useRef<HTMLInputElement>(null);
+  const [pwPopupMode, setPwPopupMode] = useState<'password' | 'keyfile'>('password');
+  const [pwPopupKeyName, setPwPopupKeyName] = useState('');
+  const pwPopupKeyInputRef = useRef<HTMLInputElement>(null);
+
   // Filter & Search state
   const [filterCategory, setFilterCategory] = useState<FilterCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1054,6 +1064,12 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
     const file = e.target.files?.[0];
     if (!file) return;
     setStegoFile(file);
+    setPwPopupOpen(false);
+    setPwPopupValue('');
+    setPwPopupShow(false);
+    setPwPopupError('');
+    setPwPopupMode('password');
+    setPwPopupKeyName('');
     setDecryptedFiles([]);
     setModified(false);
     setNeedsPassword(false);
@@ -1136,9 +1152,20 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
       if (check.method) {
         setDecryptMethod(check.method);
       }
-      if (check.hasPassword) {
-        const methodLabel = check.method === 'aes' ? 'AES-256 + Argon2' : 'XOR';
-        showToast(`File memerlukan password (${methodLabel}) untuk dekripsi.`, 'info');
+      if (check.hasPassword || check.hasFace) {
+        if (check.hasPassword) {
+          const methodLabel = check.method === 'aes' ? 'AES-256 + Argon2' : 'XOR';
+          showToast(`File memerlukan password (${methodLabel}) untuk dekripsi.`, 'info');
+        } else {
+          showToast('File dilindungi Face Lock. Verifikasi wajah untuk dekripsi.', 'info');
+        }
+        // Tampilkan popup (password dan/atau scan wajah) sebelum dekripsi
+        setPwPopupValue('');
+        setPwPopupError('');
+        setPwPopupShow(false);
+        setPwPopupMode('password');
+        setPwPopupKeyName('');
+        setPwPopupOpen(true);
       } else {
         showToast('Data tersembunyi terdeteksi! Klik Dekripsi.', 'info');
       }
@@ -1147,18 +1174,21 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
     }
   };
 
-  const handleDecrypt = async () => {
-    if (!stegoBuffer) return showToast('Pilih file stego terlebih dahulu!', 'error');
+  const handleDecrypt = async (passwordOverride?: string): Promise<boolean> => {
+    if (!stegoBuffer) {
+      showToast('Pilih file stego terlebih dahulu!', 'error');
+      return false;
+    }
 
     // Jika file punya face lock, wajib verifikasi wajah dulu
     if (stegoHasFace && !faceVerified) {
       showToast('File ini dilindungi wajah. Verifikasi wajah terlebih dahulu!', 'error');
-      return;
+      return false;
     }
 
     setDecrypting(true);
     setDecryptCompressionStats(null);
-    const passwordCopy = decryptPassword;
+    const passwordCopy = passwordOverride ?? decryptPassword;
     try {
       const { files, faceDescriptor, log: payloadLog } = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod);
 
@@ -1236,13 +1266,97 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
         else if (cat === 'audio' || cat === 'video') previews[f.id] = URL.createObjectURL(blob);
       }
       setFilePreviews(previews);
+      return true;
     } catch (err) {
       showToast(`Error: ${(err as Error).message}`, 'error');
+      return false;
     } finally {
       secureWipeString(passwordCopy);
       setDecrypting(false);
     }
   };
+
+  // ── Handler popup password ───────────────────────────────────────────
+  const closePwPopup = () => {
+    secureWipeString(pwPopupValue);
+    setPwPopupOpen(false);
+    setPwPopupValue('');
+    setPwPopupShow(false);
+    setPwPopupError('');
+    setPwPopupKeyName('');
+  };
+
+  const handlePwPopupOk = async () => {
+    if (decrypting) return;
+    if (needsPassword && !pwPopupValue) {
+      setPwPopupError(pwPopupMode === 'keyfile' ? 'Upload file key terlebih dahulu.' : 'Password tidak boleh kosong.');
+      if (pwPopupMode === 'password') pwPopupInputRef.current?.focus();
+      return;
+    }
+    if (stegoHasFace && !faceVerified) {
+      setPwPopupError('Scan wajah terlebih dahulu.');
+      return;
+    }
+    setPwPopupError('');
+    const ok = await handleDecrypt(needsPassword ? pwPopupValue : '');
+    if (ok) {
+      closePwPopup();
+    } else {
+      setPwPopupError(
+        !needsPassword ? 'Dekripsi gagal.'
+        : pwPopupMode === 'keyfile' ? 'Dekripsi gagal. Key tidak cocok dengan file ini.'
+        : 'Dekripsi gagal. Periksa kembali password Anda.'
+      );
+      if (needsPassword && pwPopupMode === 'password') pwPopupInputRef.current?.select();
+    }
+  };
+
+  const switchPwPopupMode = (mode: 'password' | 'keyfile') => {
+    if (mode === pwPopupMode || decrypting) return;
+    secureWipeString(pwPopupValue);
+    setPwPopupMode(mode);
+    setPwPopupValue('');
+    setPwPopupKeyName('');
+    setPwPopupShow(false);
+    setPwPopupError('');
+  };
+
+  const handlePwPopupKeyUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const key = (await readFileAsText(file)).trim();
+      if (!key) {
+        setPwPopupError('File key kosong atau tidak valid.');
+      } else {
+        setPwPopupValue(key);
+        setPwPopupKeyName(file.name);
+        setPwPopupError('');
+      }
+    } catch {
+      setPwPopupError('Gagal membaca file key.');
+    }
+    e.target.value = '';
+  };
+
+  const clearPwPopupKey = () => {
+    secureWipeString(pwPopupValue);
+    setPwPopupValue('');
+    setPwPopupKeyName('');
+    setPwPopupError('');
+  };
+
+  // Fokus otomatis ke input + tutup dengan Escape
+  useEffect(() => {
+    if (!pwPopupOpen) return;
+    const t = setTimeout(() => pwPopupInputRef.current?.focus(), 50);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !decrypting && !showFaceScanner) closePwPopup();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { clearTimeout(t); window.removeEventListener('keydown', onKey); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pwPopupOpen, decrypting, showFaceScanner]);
 
   const requestRemoveDecryptedFile = (id: string, name: string) => {
     setConfirmDialog({ open: true, fileId: id, fileName: name });
@@ -1579,6 +1693,191 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
                   </p>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====== PASSWORD POPUP (muncul saat file tersembunyi terdeteksi) ====== */}
+      {pwPopupOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 animate-overlayIn" role="dialog" aria-modal="true" aria-labelledby="pw-popup-title">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => { if (!decrypting) closePwPopup(); }} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-scaleIn">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
+                <Lock className="w-5 h-5 text-violet-500" />
+              </div>
+              <div className="min-w-0">
+                <h3 id="pw-popup-title" className="text-base font-bold text-slate-800">File Tersembunyi Terdeteksi</h3>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  {needsPassword && stegoHasFace ? 'Masukkan password dan scan wajah untuk membuka.'
+                    : stegoHasFace ? 'Scan wajah untuk membuka.'
+                    : 'Masukkan password untuk membuka.'}
+                </p>
+              </div>
+            </div>
+
+            {stegoFile && (
+              <div className="bg-slate-50 rounded-xl p-3 mb-4">
+                <p className="text-sm text-slate-700 font-medium truncate">{stegoFile.name}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {detectedMethod === 'aes' ? 'AES-256-GCM + Argon2' : 'XOR (Standar)'}
+                </p>
+              </div>
+            )}
+
+            {needsPassword && (
+            <>
+            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl mb-3">
+              <button
+                type="button"
+                onClick={() => switchPwPopupMode('password')}
+                disabled={decrypting}
+                className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:cursor-not-allowed ${pwPopupMode === 'password' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Lock className="w-3.5 h-3.5" />Password
+              </button>
+              <button
+                type="button"
+                onClick={() => switchPwPopupMode('keyfile')}
+                disabled={decrypting}
+                className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:cursor-not-allowed ${pwPopupMode === 'keyfile' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <KeyRound className="w-3.5 h-3.5" />File Key
+              </button>
+            </div>
+
+            {pwPopupMode === 'password' ? (
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  ref={pwPopupInputRef}
+                  type={pwPopupShow ? 'text' : 'password'}
+                  value={pwPopupValue}
+                  disabled={decrypting}
+                  onChange={(e) => { setPwPopupValue(e.target.value); if (pwPopupError) setPwPopupError(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handlePwPopupOk(); } }}
+                  placeholder="Masukkan password..."
+                  autoComplete="off"
+                  className="focus-ring-accent w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-12 py-3 text-sm text-slate-700 placeholder-slate-400 focus:border-violet-300 transition-all disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onClick={() => setPwPopupShow(!pwPopupShow)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+                  tabIndex={-1}
+                >
+                  {pwPopupShow ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <input ref={pwPopupKeyInputRef} type="file" accept=".sty,.txt" className="hidden" onChange={(e) => { void handlePwPopupKeyUpload(e); }} />
+                {!pwPopupValue ? (
+                  <button
+                    type="button"
+                    onClick={() => pwPopupKeyInputRef.current?.click()}
+                    disabled={decrypting}
+                    className="w-full border-2 border-dashed border-emerald-200 rounded-xl py-5 flex flex-col items-center gap-2 hover:border-emerald-400 hover:bg-emerald-50/30 transition-all group cursor-pointer disabled:opacity-60"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
+                      <Upload className="w-5 h-5 text-emerald-400 group-hover:text-emerald-600" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs font-semibold text-slate-500 group-hover:text-slate-700">Klik untuk upload file key.sty</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">File key yang di-download saat enkripsi</p>
+                    </div>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                      <CheckCircle className="w-5 h-5 text-emerald-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-emerald-700">Key berhasil dimuat ✓</p>
+                      <p className="text-[10px] text-emerald-600/80 mt-0.5 truncate">{pwPopupKeyName}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearPwPopupKey}
+                      disabled={decrypting}
+                      className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                      title="Hapus key"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            </>
+            )}
+
+            {stegoHasFace && (
+              <div className={needsPassword ? 'mt-4' : ''}>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <ScanFace className="w-3.5 h-3.5 text-violet-500" />
+                  <span className="text-xs font-semibold text-slate-600">Face Lock</span>
+                  <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-md">Diperlukan</span>
+                </div>
+                {!faceVerified ? (
+                  <button
+                    type="button"
+                    onClick={() => { setFaceScanMode('verify'); setShowFaceScanner(true); }}
+                    disabled={decrypting}
+                    className="w-full flex items-center justify-center gap-2 bg-violet-500 hover:bg-violet-600 text-white px-4 py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98] cursor-pointer shadow-sm shadow-violet-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <Camera className="w-4 h-4" />
+                    Scan Wajah
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                      <CheckCircle className="w-5 h-5 text-emerald-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-emerald-700">Wajah Terverifikasi ✓</p>
+                      <p className="text-[10px] text-emerald-600/80 mt-0.5">Identitas cocok</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setFaceScanMode('verify'); setShowFaceScanner(true); }}
+                      disabled={decrypting}
+                      className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                      title="Scan ulang"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {pwPopupError && (
+              <div className="flex items-center gap-1.5 mt-2 text-xs font-medium text-red-600 animate-fadeIn">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                {pwPopupError}
+              </div>
+            )}
+
+            <div className="flex gap-3 mt-5">
+              <button
+                type="button"
+                onClick={closePwPopup}
+                disabled={decrypting}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => { void handlePwPopupOk(); }}
+                disabled={decrypting || (needsPassword && !pwPopupValue) || (stegoHasFace && !faceVerified)}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 text-sm font-semibold text-white hover:brightness-105 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {decrypting ? (<><Loader2 className="w-4 h-4 animate-spin" />Mendekripsi...</>) : 'OK'}
+              </button>
             </div>
           </div>
         </div>
@@ -2349,7 +2648,7 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
                 {/* Decrypt button */}
                 {stegoFile && stegoDetected && !decryptionDone && (
                   <button
-                    onClick={handleDecrypt}
+                    onClick={() => { void handleDecrypt(); }}
                     disabled={decrypting || (needsPassword && !decryptPassword) || (stegoHasFace && !faceVerified)}
                     className="w-full bg-gradient-to-r from-violet-500 to-purple-500 text-white py-3.5 rounded-xl font-bold text-sm hover:brightness-105 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-violet-200 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
                   >
