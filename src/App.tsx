@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Unlock, Lock, LockKeyhole, Shield, Info,
-  Menu, ChevronLeft, Layers, Cpu, Boxes, Scissors, Combine,
+  Menu, ChevronLeft, Layers, Cpu, Boxes, Scissors, Combine, Download,
 } from 'lucide-react';
 import { StegoView, type Tab } from './StegoView';
 import { PixelEncryptorView } from './PixelEncryptor';
 import { FragmentationView, type FragMode } from './Fragmentation';
+import { onInstallAvailable, promptInstall } from './pwa';
 
 type AppMode = 'stego' | 'pixel-encryptor' | 'fragmentation';
 
@@ -15,6 +16,9 @@ export function App() {
   const [activeTab, setActiveTab] = useState<Tab>('embed');
   const [pixelMode, setPixelMode] = useState<'encrypt' | 'decrypt'>('encrypt');
   const [fragMode, setFragMode] = useState<FragMode>('split');
+  const [canInstall, setCanInstall] = useState(false);
+
+  useEffect(() => onInstallAvailable(setCanInstall), []);
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -216,6 +220,17 @@ export function App() {
         {/* ====== FOOTER ====== */}
         <footer className="border-t border-slate-100 mt-auto bg-white">
           <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-center">
+            {canInstall && (
+              <button
+                onClick={promptInstall}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 shadow-sm transition-all cursor-pointer"
+                title="Pasang sebagai aplikasi"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Install Aplikasi</span>
+              </button>
+            )}
             <a
               href={appMode === 'pixel-encryptor' ? 'about_PixelEncryptor.html' : 'about.html'}
               target="_blank"
@@ -226,6 +241,7 @@ export function App() {
               <Info className="w-3.5 h-3.5" />
               <span>Tentang</span>
             </a>
+            </div>
             <p className="text-xs text-slate-400">&copy; 2026 Steganografi Multi-Media, By Ahmad Sidik.</p>
           </div>
         </footer>
