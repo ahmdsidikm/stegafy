@@ -11,7 +11,7 @@ import {
   LayoutGrid, Zap, ShieldCheck, ScanFace, Camera,
 } from 'lucide-react';
 import {
-  embedFiles, embedFilesNoCover, extractFiles, checkForHiddenData, reEmbedFiles,
+  embedFiles, embedFilesNoCover, extractFiles, checkForHiddenData, reEmbedFiles, hashKeyFile,
   readFileAsArrayBuffer, readFileAsDataURL, readFileAsText,
   blobToDataURL, blobToText, formatFileSize, getFileCategory,
   calculatePasswordStrength, secureWipeString,
@@ -670,6 +670,26 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
   const [faceVerified, setFaceVerified] = useState(false);
   const [stegoHasFace, setStegoHasFace] = useState(false);
 
+  // Key file (keamanan ganda)
+  const [embedKeyFile, setEmbedKeyFile] = useState<{ name: string; hash: string } | null>(null);
+  const [stegoHasKeyFile, setStegoHasKeyFile] = useState(false);
+  const [decryptKeyFile, setDecryptKeyFile] = useState<{ name: string; hash: string } | null>(null);
+  const embedKeyFileInputRef = useRef<HTMLInputElement>(null);
+  const decryptKeyFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSecondKeyFile = async (e: React.ChangeEvent<HTMLInputElement>, target: 'embed' | 'decrypt') => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const entry = { name: file.name, hash: await hashKeyFile(await readFileAsArrayBuffer(file)) };
+      if (target === 'embed') setEmbedKeyFile(entry);
+      else { setDecryptKeyFile(entry); setPwPopupError(''); }
+    } catch {
+      showToast('Gagal membaca key file.', 'error');
+    }
+  };
+
   // Activity log state (Mode Pro)
   const [activityLog, setActivityLog] = useState<string[]>([]);
   const [showLogPopup, setShowLogPopup] = useState(false);
@@ -999,6 +1019,7 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
       setEmbedCompressionStats({ originalSize: totalOriginalSize, compressedSize: totalCompressedSize, savedPercent });
 
       const methodToUse = passwordCopy ? embedMethod : undefined;
+      const keyHash = passwordCopy && embedMethod === 'aes' ? embedKeyFile?.hash : undefined;
 
       // Build creation log to embed in payload — each entry gets its own fresh timestamp
       const creationLog: string[] = [
@@ -1012,6 +1033,7 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
           ? [`[${makeTs()}] Enkripsi: ${methodToUse === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`]
           : [`[${makeTs()}] Tanpa enkripsi password`]),
         ...(embedFaceDescriptor ? [`[${makeTs()}] Face Lock diaktifkan`] : []),
+        ...(keyHash ? [`[${makeTs()}] Key File diaktifkan`] : []),
       ];
 
       let blob: Blob;
@@ -1022,14 +1044,14 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
           compressedFiles, passwordCopy || undefined,
           embedComments, methodToUse,
           embedFaceDescriptor ?? undefined,
-          creationLog
+          creationLog, keyHash
         ));
       } else {
         ({ blob, extension } = await embedFiles(
           coverFile!, compressedFiles, passwordCopy || undefined,
           embedComments, methodToUse,
           embedFaceDescriptor ?? undefined,
-          creationLog
+          creationLog, keyHash
         ));
       }
 
@@ -1109,6 +1131,8 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
       setNeedsPassword(check.hasPassword);
       setDetectedMethod(check.method);
       setStegoHasFace(check.hasFace);
+      setStegoHasKeyFile(check.hasKeyFile);
+      setDecryptKeyFile(null);
       setFaceVerified(false);
       addLog(`File stego dimuat: ${file.name} (${formatFileSize(file.size)})`);
       if (check.method) addLog(`Metode enkripsi terdeteksi: ${check.method === 'aes' ? 'AES-256-GCM + Argon2 (Mode Pro)' : 'XOR (Mode Standar)'}`);
@@ -1152,7 +1176,7 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
       if (check.method) {
         setDecryptMethod(check.method);
       }
-      if (check.hasPassword || check.hasFace) {
+      if (check.hasPassword || check.hasFace || check.hasKeyFile) {
         if (check.hasPassword) {
           const methodLabel = check.method === 'aes' ? 'AES-256 + Argon2' : 'XOR';
           showToast(`File memerlukan password (${methodLabel}) untuk dekripsi.`, 'info');
@@ -1185,12 +1209,16 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
       showToast('File ini dilindungi wajah. Verifikasi wajah terlebih dahulu!', 'error');
       return false;
     }
+    if (stegoHasKeyFile && !decryptKeyFile) {
+      showToast('File ini memerlukan key file. Upload key file terlebih dahulu!', 'error');
+      return false;
+    }
 
     setDecrypting(true);
     setDecryptCompressionStats(null);
     const passwordCopy = passwordOverride ?? decryptPassword;
     try {
-      const { files, faceDescriptor, log: payloadLog } = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod);
+      const { files, faceDescriptor, log: payloadLog } = await extractFiles(stegoBuffer, passwordCopy || undefined, detectedMethod, decryptKeyFile?.hash);
 
       // ── Decompress each file if it has the ZSTG header ──────────────────
       let totalCompressedSize = 0;
@@ -1295,6 +1323,10 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
     }
     if (stegoHasFace && !faceVerified) {
       setPwPopupError('Scan wajah terlebih dahulu.');
+      return;
+    }
+    if (stegoHasKeyFile && !decryptKeyFile) {
+      setPwPopupError('Upload key file terlebih dahulu.');
       return;
     }
     setPwPopupError('');
@@ -1423,7 +1455,8 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
         passwordCopy || undefined,
         passwordCopy ? decryptMethod : undefined,
         storedFaceDescriptor ?? undefined,
-        updatedLog
+        updatedLog,
+        decryptKeyFile?.hash
       );
 
       const newBuffer = await newBlob.arrayBuffer();
@@ -1546,6 +1579,8 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
     setFaceVerified(false);
     setStoredFaceDescriptor(null);
     setStegoHasFace(false);
+    setStegoHasKeyFile(false);
+    setDecryptKeyFile(null);
     setDecryptKeyType('password');
     setDecryptCompressionStats(null);
     if (stegoInputRef.current) stegoInputRef.current.value = '';
@@ -1710,7 +1745,7 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
               <div className="min-w-0">
                 <h3 id="pw-popup-title" className="text-base font-bold text-slate-800">File Tersembunyi Terdeteksi</h3>
                 <p className="text-sm text-slate-500 mt-0.5">
-                  {needsPassword && stegoHasFace ? 'Masukkan password dan scan wajah untuk membuka.'
+                  {needsPassword && (stegoHasFace || stegoHasKeyFile) ? `Masukkan password${stegoHasFace ? ', scan wajah' : ''}${stegoHasKeyFile ? ', upload key file' : ''} untuk membuka.`
                     : stegoHasFace ? 'Scan wajah untuk membuka.'
                     : 'Masukkan password untuk membuka.'}
                 </p>
@@ -1854,6 +1889,25 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
               </div>
             )}
 
+            {stegoHasKeyFile && (
+              <div className={needsPassword || stegoHasFace ? 'mt-4' : ''}>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <KeyRound className="w-3.5 h-3.5 text-violet-500" />
+                  <span className="text-xs font-semibold text-slate-600">Key File</span>
+                  <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-md">Diperlukan</span>
+                </div>
+                <input ref={decryptKeyFileInputRef} type="file" className="hidden" onChange={(e) => { void handleSecondKeyFile(e, 'decrypt'); }} />
+                <button
+                  type="button"
+                  onClick={() => decryptKeyFileInputRef.current?.click()}
+                  disabled={decrypting}
+                  className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${decryptKeyFile ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-violet-500 hover:bg-violet-600 text-white shadow-sm shadow-violet-200'}`}
+                >
+                  {decryptKeyFile ? <><CheckCircle className="w-4 h-4" /><span className="truncate">{decryptKeyFile.name}</span></> : <><Upload className="w-4 h-4" />Upload Key File</>}
+                </button>
+              </div>
+            )}
+
             {pwPopupError && (
               <div className="flex items-center gap-1.5 mt-2 text-xs font-medium text-red-600 animate-fadeIn">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -1873,7 +1927,7 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
               <button
                 type="button"
                 onClick={() => { void handlePwPopupOk(); }}
-                disabled={decrypting || (needsPassword && !pwPopupValue) || (stegoHasFace && !faceVerified)}
+                disabled={decrypting || (needsPassword && !pwPopupValue) || (stegoHasFace && !faceVerified) || (stegoHasKeyFile && !decryptKeyFile)}
                 className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 text-sm font-semibold text-white hover:brightness-105 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {decrypting ? (<><Loader2 className="w-4 h-4 animate-spin" />Mendekripsi...</>) : 'OK'}
@@ -2113,6 +2167,7 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
                           setGeneratedKey('');
                           setGeneratedKeyUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return ''; });
                           setEmbedFaceDescriptor(null);
+                          setEmbedKeyFile(null);
                           resetStegoResult();
                         }
                       }}
@@ -2255,6 +2310,33 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
                                 <X className="w-3.5 h-3.5" />
                               </button>
                               <button type="button" onClick={() => { setFaceScanMode('enroll'); setShowFaceScanner(true); }} className="p-1.5 rounded-lg hover:bg-emerald-100 text-emerald-500 transition-all cursor-pointer shrink-0" title="Scan ulang">
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                          <input ref={embedKeyFileInputRef} type="file" className="hidden" onChange={(e) => { void handleSecondKeyFile(e, 'embed'); }} />
+                          {!embedKeyFile ? (
+                            <button
+                              type="button"
+                              onClick={() => embedKeyFileInputRef.current?.click()}
+                              className="mt-2 w-full flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50 text-emerald-600 px-4 py-3 text-xs font-bold transition-all active:scale-[0.98] cursor-pointer"
+                            >
+                              <KeyRound className="w-3.5 h-3.5" />
+                              Gunakan Key File
+                            </button>
+                          ) : (
+                            <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                                <KeyRound className="w-5 h-5 text-emerald-500" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold text-emerald-700">Key File Aktif ✓</p>
+                                <p className="text-[11px] text-emerald-600/80 mt-0.5 truncate">{embedKeyFile.name}</p>
+                              </div>
+                              <button type="button" onClick={() => setEmbedKeyFile(null)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all cursor-pointer shrink-0" title="Hapus key file">
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                              <button type="button" onClick={() => embedKeyFileInputRef.current?.click()} className="p-1.5 rounded-lg hover:bg-emerald-100 text-emerald-500 transition-all cursor-pointer shrink-0" title="Ganti key file">
                                 <RefreshCw className="w-3.5 h-3.5" />
                               </button>
                             </div>
@@ -2465,6 +2547,13 @@ export function StegoView({ activeTab }: { activeTab: Tab }) {
                                 Face Lock Aktif
                               </span>
                               {faceVerified && <CheckCircle className="w-3 h-3 text-emerald-500 ml-auto shrink-0" />}
+                            </div>
+                          )}
+                          {stegoHasKeyFile && (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border bg-violet-50/50 border-violet-200 animate-fadeIn">
+                              <KeyRound className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                              <span className="text-xs font-semibold text-violet-700">Key File Aktif</span>
+                              {decryptKeyFile && <CheckCircle className="w-3 h-3 text-emerald-500 ml-auto shrink-0" />}
                             </div>
                           )}
                           {!detectedMethod && !needsPassword && (

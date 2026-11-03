@@ -21,6 +21,18 @@ const ARGON2_MEMORY_COST = 65536; // 64MB
 const ARGON2_PARALLELISM = 1;
 const ARGON2_HASH_LENGTH = 32; // 256-bit key
 
+const FLAG_FACE = 0x01;
+const FLAG_KEY = 0x02;
+
+export async function hashKeyFile(buffer: ArrayBuffer): Promise<string> {
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
+  return Array.from(h, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function mixKey(password: string | undefined, keyHash?: string): string | undefined {
+  return password && keyHash ? `${password}\u0000${keyHash}` : password;
+}
+
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 }
@@ -578,8 +590,11 @@ export async function embedFiles(
   comments?: Record<number, string>,
   method?: EncryptionMethod,
   faceDescriptor?: Float32Array,
-  log?: string[]
+  log?: string[],
+  keyFileHash?: string
 ): Promise<{ blob: Blob; extension: string }> {
+  const hasKey = !!(password && keyFileHash);
+  password = mixKey(password, keyFileHash);
   const coverBuffer = await readFileAsArrayBuffer(coverFile);
 
   let payloadBytes: Uint8Array;
@@ -675,7 +690,7 @@ export async function embedFiles(
   combined[metaOffset + 2] = (payloadSize >> 8)  & 0xff;
   combined[metaOffset + 3] =  payloadSize        & 0xff;
   // hasFace flag (1 byte): 0x01 = has face, 0x00 = no face
-  combined[metaOffset + 4] = hasFace ? 0x01 : 0x00;
+  combined[metaOffset + 4] = (hasFace ? FLAG_FACE : 0) | (hasKey ? FLAG_KEY : 0);
   // methodFlag (1 byte)
   combined[metaOffset + 5] = methodFlag;
   // MAGIC (4 bytes)
@@ -701,8 +716,11 @@ export async function embedFilesNoCover(
   comments?: Record<number, string>,
   method?: EncryptionMethod,
   faceDescriptor?: Float32Array,
-  log?: string[]
+  log?: string[],
+  keyFileHash?: string
 ): Promise<{ blob: Blob; extension: string }> {
+  const hasKey = !!(password && keyFileHash);
+  password = mixKey(password, keyFileHash);
   let payloadBytes: Uint8Array;
   let methodFlag: number;
 
@@ -763,7 +781,7 @@ export async function embedFilesNoCover(
   combined[metaOffset + 1] = (payloadSize >> 16) & 0xff;
   combined[metaOffset + 2] = (payloadSize >> 8)  & 0xff;
   combined[metaOffset + 3] =  payloadSize        & 0xff;
-  combined[metaOffset + 4] = hasFace ? 0x01 : 0x00;
+  combined[metaOffset + 4] = (hasFace ? FLAG_FACE : 0) | (hasKey ? FLAG_KEY : 0);
   combined[metaOffset + 5] = methodFlag;
   combined[metaOffset + 6] = MAGIC_BYTES[0];
   combined[metaOffset + 7] = MAGIC_BYTES[1];
@@ -776,11 +794,11 @@ export async function embedFilesNoCover(
 
 export function checkForHiddenData(
   buffer: ArrayBuffer
-): { found: boolean; hasPassword: boolean; hasFace: boolean; method: EncryptionMethod | null } {
+): { found: boolean; hasPassword: boolean; hasFace: boolean; hasKeyFile: boolean; method: EncryptionMethod | null } {
   const uint8 = new Uint8Array(buffer);
 
   if (uint8.length < 10) {
-    return { found: false, hasPassword: false, hasFace: false, method: null };
+    return { found: false, hasPassword: false, hasFace: false, hasKeyFile: false, method: null };
   }
 
   const magicOffset = uint8.length - 4;
@@ -791,17 +809,18 @@ export function checkForHiddenData(
     uint8[magicOffset + 3] === MAGIC_BYTES[3];
 
   if (!hasMagic) {
-    return { found: false, hasPassword: false, hasFace: false, method: null };
+    return { found: false, hasPassword: false, hasFace: false, hasKeyFile: false, method: null };
   }
 
   // New trailer layout (10 bytes minimum):
   // [payloadSize(4)][hasFaceFlag(1)][methodFlag(1)][MAGIC(4)]
   const methodFlag  = uint8[uint8.length - 5];
   const hasFaceFlag = uint8[uint8.length - 6];
-  const hasFace     = hasFaceFlag === 0x01;
+  const hasFace     = (hasFaceFlag & FLAG_FACE) !== 0;
+  const hasKeyFile  = (hasFaceFlag & FLAG_KEY) !== 0;
 
   const sizeOffset = uint8.length - 10;
-  if (sizeOffset < 0) return { found: false, hasPassword: false, hasFace: false, method: null };
+  if (sizeOffset < 0) return { found: false, hasPassword: false, hasFace: false, hasKeyFile: false, method: null };
 
   const payloadSize =
     (uint8[sizeOffset]     << 24) |
@@ -811,7 +830,7 @@ export function checkForHiddenData(
 
   const trailerSize = hasFace ? TRAILER_SIZE_WITH_FACE : TRAILER_SIZE_NO_FACE;
   if (payloadSize <= 0 || payloadSize > uint8.length - trailerSize) {
-    return { found: false, hasPassword: false, hasFace: false, method: null };
+    return { found: false, hasPassword: false, hasFace: false, hasKeyFile: false, method: null };
   }
 
   const hasPassword = methodFlag === 0x01 || methodFlag === 0x02;
@@ -820,13 +839,14 @@ export function checkForHiddenData(
     methodFlag === 0x02 ? 'aes' :
     null;
 
-  return { found: true, hasPassword, hasFace, method };
+  return { found: true, hasPassword, hasFace, hasKeyFile, method };
 }
 
 export async function extractFiles(
   buffer: ArrayBuffer,
   password?: string,
-  method?: EncryptionMethod | null
+  method?: EncryptionMethod | null,
+  keyFileHash?: string
 ): Promise<{ files: HiddenFile[]; faceDescriptor: Float32Array | null; log: string[] }> {
   const uint8 = new Uint8Array(buffer);
 
@@ -847,7 +867,7 @@ export async function extractFiles(
 
   const methodFlag  = uint8[uint8.length - 5];
   const hasFaceFlag = uint8[uint8.length - 6];
-  const hasFace     = hasFaceFlag === 0x01;
+  const hasFace     = (hasFaceFlag & FLAG_FACE) !== 0;
 
   const sizeOffset = uint8.length - 10;
   const payloadSize =
@@ -859,6 +879,10 @@ export async function extractFiles(
   const trailerSize = hasFace ? TRAILER_SIZE_WITH_FACE : TRAILER_SIZE_NO_FACE;
   if (payloadSize <= 0 || payloadSize > uint8.length - trailerSize) {
     throw new Error('Data tersembunyi rusak atau ukuran tidak valid.');
+  }
+  if ((hasFaceFlag & FLAG_KEY) !== 0) {
+    if (!keyFileHash) throw new Error('File ini memerlukan key file.');
+    password = mixKey(password, keyFileHash);
   }
 
   // Extract face descriptor if present (sits between payload and trailer metadata)
@@ -968,13 +992,16 @@ export async function reEmbedFiles(
   password?: string,
   method?: EncryptionMethod,
   faceDescriptor?: Float32Array | null,
-  log?: string[]
+  log?: string[],
+  keyFileHash?: string
 ): Promise<Blob> {
+  const hasKey = !!(password && keyFileHash);
+  password = mixKey(password, keyFileHash);
   const uint8 = new Uint8Array(stegoBuffer);
 
   // Read trailer to find payload boundaries
   const hasFaceFlag = uint8[uint8.length - 6];
-  const hasFaceOld  = hasFaceFlag === 0x01;
+  const hasFaceOld  = (hasFaceFlag & FLAG_FACE) !== 0;
   const trailerSizeOld = hasFaceOld ? TRAILER_SIZE_WITH_FACE : TRAILER_SIZE_NO_FACE;
 
   const sizeOffset = uint8.length - 10;
@@ -1047,7 +1074,7 @@ export async function reEmbedFiles(
   combined[metaOffset + 1] = (newPayloadSize >> 16) & 0xff;
   combined[metaOffset + 2] = (newPayloadSize >>  8) & 0xff;
   combined[metaOffset + 3] =  newPayloadSize        & 0xff;
-  combined[metaOffset + 4] = hasFace ? 0x01 : 0x00;
+  combined[metaOffset + 4] = (hasFace ? FLAG_FACE : 0) | (hasKey ? FLAG_KEY : 0);
   combined[metaOffset + 5] = methodFlag;
   combined[metaOffset + 6] = MAGIC_BYTES[0];
   combined[metaOffset + 7] = MAGIC_BYTES[1];
